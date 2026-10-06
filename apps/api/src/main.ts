@@ -2,34 +2,83 @@
 // must be loaded before any decorated class is evaluated.
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+import { RequestContextInterceptor } from './common/interceptors/request-context.interceptor';
+import { loadAppEnvironment } from './config/env';
 
-async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+/**
+ * Application bootstrap.
+ *
+ * Order matters here:
+ *  1. `trust proxy` — must be set before anything reads `x-forwarded-for`, or the
+ *     rate limiter and audit trail will attribute every request to the proxy.
+ *  2. CORS with credentials bound to a single configured origin.
+ *  3. Cookie parsing (the refresh token arrives as a cookie).
+ *  4. Global validation → global interceptor → global filter, so every response
+ *     carries the same envelope and no unvalidated payload reaches a handler.
+ */
+async function bootstrap(): Promise<void> {
+  const env = loadAppEnvironment();
+  const logger = new Logger('Bootstrap');
 
-  app.getHttpAdapter().getInstance().set('trust proxy', 1);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    // Keep Express' own logger quiet; the request interceptor emits structured
+    // JSON lines instead, which is what the log pipeline actually consumes.
+    logger: ['error', 'warn', 'log'],
+  });
 
-  app.setGlobalPrefix('api/v1');
+  // Honour exactly one proxy hop (Render terminates TLS in front of us).
+  app.set('trust proxy', 1);
+
+  app.setGlobalPrefix('api/v1', {
+    // Health probes are served from the root so a platform probe does not have to
+    // carry a bearer token.
+    exclude: ['health'],
+  });
 
   app.enableCors({
-    origin: process.env.WEB_APP_ORIGIN || 'http://localhost:5173',
+    // With credentials enabled the origin can never be a wildcard, so it is
+    // pinned to the single configured web origin.
+    origin: env.webAppOrigin,
     methods: 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
     allowedHeaders: 'Content-Type,Authorization,X-Requested-With,X-Request-Id',
     credentials: true,
+    exposedHeaders: ['X-Request-Id'],
+    maxAge: 86_400,
   });
 
   app.use(cookieParser());
-  app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true }));
+
+  app.useGlobalPipes(
+    new ValidationPipe({
+      // Convert payloads to DTO instances and strip any property the DTO does not
+      // declare — this is what stops a client smuggling extra fields into a query.
+      transform: true,
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      validationError: { target: false, value: false },
+    })
+  );
+
+  app.useGlobalInterceptors(new RequestContextInterceptor());
   app.useGlobalFilters(new HttpExceptionFilter());
 
-  const port = process.env.PORT || 3000;
-  await app.listen(port);
+  // Let `DatabaseService.onModuleDestroy` run so pooled sockets are released on
+  // deploy and SIGTERM, rather than being severed mid-request.
+  app.enableShutdownHooks();
+
+  await app.listen(env.port, '0.0.0.0');
+
+  logger.log(`Vault API listening on port ${env.port} [${env.nodeEnv}]`);
 }
 
-bootstrap().catch((err) => {
-  process.stderr.write(`${err.message}\n`);
+bootstrap().catch((error: unknown) => {
+  process.stderr.write(
+    `${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}\n`
+  );
   process.exit(1);
 });

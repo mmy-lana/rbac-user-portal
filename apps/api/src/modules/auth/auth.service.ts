@@ -10,6 +10,7 @@ import * as crypto from 'node:crypto';
 import { and, eq, users, rolePermissions, permissions } from '@rbac/database';
 import { DatabaseService } from '../database/database.service';
 import { UsersService, type UserWithSecrets } from '../users/users.service';
+import { AuditService } from '../audit/audit.service';
 import { APP_ENV, type AppEnvironment } from '../../config/env';
 import type { RefreshSession } from '../../common/interfaces/request.interface';
 import {
@@ -40,6 +41,21 @@ const USER_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 const DUMMY_PASSWORD_HASH =
   '$2b$12$C6UzMDM.H6dfI/f/IKcEe.e7tZTCxCxb6Z0FhE6nlqJZ0Qp0Z4iAe';
 
+/** Request attribution carried into the audit trail. */
+export interface RequestTelemetry {
+  ipAddress: string;
+  userAgent: string;
+}
+
+/**
+ * Attribution for events raised outside a request cycle — for example a refresh
+ * rotation triggered by the strategy with no telemetry attached.
+ */
+const SYSTEM_TELEMETRY: RequestTelemetry = {
+  ipAddress: '127.0.0.1',
+  userAgent: 'vault-session-sweeper',
+};
+
 /** Minimal session-bearing projection of a user row. */
 type RefreshCandidate = UserWithSecrets & { refreshTokenHash: string };
 
@@ -57,6 +73,7 @@ export class AuthService {
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
     private readonly dbService: DatabaseService,
+    private readonly auditService: AuditService,
     @Inject(APP_ENV) private readonly env: AppEnvironment
   ) {}
 
@@ -67,18 +84,44 @@ export class AuthService {
    * unknown address still pays for one bcrypt comparison, so neither response
    * timing nor response body can be used to enumerate registered accounts.
    */
-  async validateUserCredentials(email: string, password: string): Promise<UserWithSecrets> {
-    const user = await this.usersService.findByEmail(email.trim().toLowerCase());
+  async validateUserCredentials(
+    email: string,
+    password: string,
+    telemetry: RequestTelemetry
+  ): Promise<UserWithSecrets> {
+    const normalizedEmail = email.trim().toLowerCase();
+    const user = await this.usersService.findByEmail(normalizedEmail);
 
     if (!user) {
       await bcrypt.compare(password, DUMMY_PASSWORD_HASH);
+      await this.auditService.recordSignIn({
+        userId: 'unknown',
+        role: SystemRole.MEMBER,
+        outcome: 'failure',
+        attemptedEmail: normalizedEmail,
+        telemetry,
+      });
       throw new UnauthorizedException('Authentication credentials invalid');
     }
 
     const matches = await bcrypt.compare(password, user.passwordHash);
     if (!matches) {
+      await this.auditService.recordSignIn({
+        userId: user.id,
+        role: user.role ?? SystemRole.MEMBER,
+        outcome: 'failure',
+        attemptedEmail: normalizedEmail,
+        telemetry,
+      });
       throw new UnauthorizedException('Authentication credentials invalid');
     }
+
+    await this.auditService.recordSignIn({
+      userId: user.id,
+      role: user.role ?? SystemRole.MEMBER,
+      outcome: 'success',
+      telemetry,
+    });
 
     if (user.status !== UserStatus.ACTIVE) {
       throw new ForbiddenException(
@@ -148,7 +191,10 @@ export class AuthService {
    * the session is terminated, and the caller is rejected. That is the replay
    * detection the dual-token standard requires.
    */
-  async rotateRefreshSession(presentedToken: string): Promise<RefreshSession> {
+  async rotateRefreshSession(
+    presentedToken: string,
+    telemetry?: RequestTelemetry
+  ): Promise<RefreshSession> {
     const userId = this.readRefreshTokenSubject(presentedToken);
     if (userId === null) {
       throw new UnauthorizedException('Refresh credential is not recognised.');
@@ -162,6 +208,11 @@ export class AuthService {
     const matches = await bcrypt.compare(presentedToken, user.refreshTokenHash);
     if (!matches) {
       await this.terminateSession(userId);
+      await this.auditService.recordSessionTerminated({
+        userId,
+        reason: 'credential_invalid',
+        telemetry: telemetry ?? SYSTEM_TELEMETRY,
+      });
       throw new UnauthorizedException('Refresh credential is not recognised.');
     }
 
@@ -169,6 +220,11 @@ export class AuthService {
     const rotated = await this.persistRefreshToken(userId, nextRefreshToken, user.refreshTokenHash);
     if (!rotated) {
       await this.terminateSession(userId);
+      await this.auditService.recordSessionTerminated({
+        userId,
+        reason: 'refresh_reuse_detected',
+        telemetry: telemetry ?? SYSTEM_TELEMETRY,
+      });
       throw new UnauthorizedException('Refresh credential has already been used.');
     }
 
@@ -213,6 +269,16 @@ export class AuthService {
       .update(users)
       .set({ refreshTokenHash: null, updatedAt: new Date() })
       .where(eq(users.id, userId));
+  }
+
+  /** Logout: terminates the session and records the actor's intent. */
+  async terminateSessionForActor(
+    userId: string,
+    reason: 'logout' | 'refresh_reuse_detected' | 'credential_invalid',
+    telemetry: RequestTelemetry
+  ): Promise<void> {
+    await this.terminateSession(userId);
+    await this.auditService.recordSessionTerminated({ userId, reason, telemetry });
   }
 
   /**

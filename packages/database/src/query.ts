@@ -37,5 +37,16 @@ export {
 
 export { alias } from 'drizzle-orm/pg-core';
 
-export type { NeonDatabase as PooledDatabase } from 'drizzle-orm/neon-serverless';
-export type { NeonHttpDatabase as Database } from 'drizzle-orm/neon-http';
+import type { NeonDatabase } from 'drizzle-orm/neon-serverless';
+import type { NeonHttpDatabase } from 'drizzle-orm/neon-http';
+import type * as schema from './schema/index';
+
+/**
+ * Schema-bound handle types.
+ *
+ * The generic is filled in here rather than at each call site so consumers never
+ * have to import the schema namespace just to annotate a variable, and never get
+ * the untyped `Record<string, never>` default that erases relational typing.
+ */
+export type Database = NeonHttpDatabase<typeof schema>;
+export type PooledDatabase = NeonDatabase<typeof schema>;

@@ -10,17 +10,22 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
-import * as crypto from 'node:crypto';
-import type { CookieOptions, Response } from 'express';
-import { AuthService, type LoginResult } from './auth.service';
+import type { CookieOptions, Request, Response } from 'express';
+import { AuthService, type RequestTelemetry } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { Public } from '../../common/guards/jwt-auth.guard';
 import { JwtRefreshGuard } from '../../common/guards/jwt-refresh.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
-import { SystemPermissions, successEnvelope, type ApiResponseEnvelope } from '@rbac/shared';
+import {
+  SystemPermissions,
+  successEnvelope,
+  type ApiResponseEnvelope,
+} from '@rbac/shared';
 import { APP_ENV, type AppEnvironment } from '../../config/env';
-import type { RefreshSession } from '../../common/interfaces/request.interface';
+import { resolveRequestId } from '../../common/interfaces/request.interface';
+import { toStoredIp, extractUserAgent } from '../../common/utils/client-ip.util';
+import { Throttle } from '@nestjs/throttler';
 
 @Controller('auth')
 export class AuthController {
@@ -32,21 +37,26 @@ export class AuthController {
   /**
    * `POST /api/v1/auth/login`
    *
-   * Public and rate limited. Returns the access token in the body (the client
-   * keeps it in memory only) and delivers the refresh token exclusively as an
-   * HttpOnly, `SameSite=Strict`, `Secure` cookie.
+   * Public and throttled to 5 requests / 60s / IP — the credential-stuffing
+   * surface. Returns the access token in the body (the client keeps it in memory
+   * only) and delivers the refresh token exclusively as an HttpOnly,
+   * `SameSite=Strict`, `Secure` cookie.
    */
   @Public()
+  @Throttle({ auth: { limit: 5, ttl: 60_000 } })
   @Post('login')
   @HttpCode(HttpStatus.OK)
   async login(
     @Body() body: LoginDto,
     @Res({ passthrough: true }) response: Response,
-    @Req() request: { headers: Record<string, unknown> }
+    @Req() request: Request
   ): Promise<ApiResponseEnvelope<unknown>> {
-    const result = await this.authService.createSession(
-      await this.authService.validateUserCredentials(body.email, body.password)
+    const user = await this.authService.validateUserCredentials(
+      body.email,
+      body.password,
+      telemetryOf(request)
     );
+    const result = await this.authService.createSession(user);
 
     this.issueRefreshCookie(response, result.refreshToken);
 
@@ -56,7 +66,7 @@ export class AuthController {
         principal: result.principal,
         tokens: { accessToken: result.accessToken, expiresIn: result.expiresIn },
       },
-      { requestId: readRequestId(request.headers) },
+      { requestId: resolveRequestId(request) },
       HttpStatus.OK
     );
   }
@@ -68,11 +78,12 @@ export class AuthController {
    * The consumed refresh token is rotated and reissued as a replacement cookie.
    */
   @Public()
+  @Throttle({ auth: { limit: 5, ttl: 60_000 } })
   @UseGuards(JwtRefreshGuard)
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   async refresh(
-    @Req() request: { headers: Record<string, unknown>; refreshSession?: RefreshSession },
+    @Req() request: Request & { refreshSession?: RefreshSessionShape },
     @Res({ passthrough: true }) response: Response
   ): Promise<ApiResponseEnvelope<unknown>> {
     const session = request.refreshSession;
@@ -87,7 +98,7 @@ export class AuthController {
         principal: session.principal,
         tokens: { accessToken: session.accessToken, expiresIn: session.expiresIn },
       },
-      { requestId: readRequestId(request.headers) },
+      { requestId: resolveRequestId(request) },
       HttpStatus.OK
     );
   }
@@ -103,15 +114,15 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   async logout(
     @CurrentUser() user: { userId: string },
-    @Req() request: { headers: Record<string, unknown> },
+    @Req() request: Request,
     @Res({ passthrough: true }) response: Response
   ): Promise<ApiResponseEnvelope<{ revoked: boolean }>> {
-    await this.authService.terminateSession(user.userId);
+    await this.authService.terminateSessionForActor(user.userId, 'logout', telemetryOf(request));
     this.clearRefreshCookie(response);
 
     return successEnvelope(
       { revoked: true },
-      { requestId: readRequestId(request.headers) },
+      { requestId: resolveRequestId(request) },
       HttpStatus.OK
     );
   }
@@ -126,10 +137,10 @@ export class AuthController {
   @Get('me')
   async me(
     @CurrentUser() user: { userId: string },
-    @Req() request: { headers: Record<string, unknown> }
+    @Req() request: Request
   ): Promise<ApiResponseEnvelope<unknown>> {
     const profile = await this.authService.getMe(user.userId);
-    return successEnvelope(profile, { requestId: readRequestId(request.headers) });
+    return successEnvelope(profile, { requestId: resolveRequestId(request) });
   }
 
   /**
@@ -137,10 +148,10 @@ export class AuthController {
    *
    * The `__Host-` prefix is a browser-enforced contract: the cookie is accepted
    * only when it is `Secure`, scoped to `Path=/`, and carries no `Domain`
-   * attribute — which rules out subdomain cookie-fixation and cookie-tossing
-   * attacks. Because `Secure` is mandatory under that prefix, a local
-   * development origin must be reached over HTTPS (or through a TLS proxy) for
-   * the refresh flow to work at all; this is intentional.
+   * attribute — which rules out subdomain cookie-fixation and cookie-tossing.
+   * Because `Secure` is mandatory under that prefix, a local development origin
+   * must be reached over HTTPS (or a TLS proxy) for the refresh flow to work; that
+   * is intentional rather than a development-mode affordance.
    */
   private cookieOptions(): CookieOptions {
     return {
@@ -162,9 +173,17 @@ export class AuthController {
   }
 }
 
-/** Echoes the inbound correlation id so client and server logs can be joined. */
-function readRequestId(headers: Record<string, unknown>): string {
-  const raw = headers['x-request-id'];
-  if (typeof raw === 'string' && raw.length > 0 && raw.length <= 128) return raw;
-  return `req_${crypto.randomUUID()}`;
+/** Session attached by `JwtRefreshGuard` (structural copy keeps the import light). */
+interface RefreshSessionShape {
+  refreshToken: string;
+  accessToken: string;
+  expiresIn: number;
+  principal: unknown;
+}
+
+function telemetryOf(request: Request): RequestTelemetry {
+  return {
+    ipAddress: toStoredIp(request),
+    userAgent: extractUserAgent(request),
+  };
 }

@@ -1,10 +1,11 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
-import { ThrottlerModule, ThrottlerStorageService } from '@nestjs/throttler';
+import { ThrottlerGuard, ThrottlerModule, ThrottlerStorageService } from '@nestjs/throttler';
 import { DatabaseModule } from './modules/database/database.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { InvitationsModule } from './modules/invitations/invitations.module';
+import { AuditModule } from './modules/audit/audit.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RbacGuard } from './common/guards/rbac.guard';
 import { ConfigModule } from './config/config.module';
@@ -13,33 +14,38 @@ import { loadAppEnvironment } from './config/env';
 @Module({
   imports: [
     ConfigModule,
+    AuditModule,
     ThrottlerModule.forRootAsync({
       useFactory: () => {
         const env = loadAppEnvironment();
         return {
           throttlers: [
+            // Credential-stuffing surface.
             { name: 'auth', ttl: env.rateLimits.auth.ttl, limit: env.rateLimits.auth.limit },
+            // Token-guessing surface on the claim endpoint.
             {
               name: 'invitation-claim',
               ttl: env.rateLimits.invitationClaim.ttl,
               limit: env.rateLimits.invitationClaim.limit,
             },
+            // Read-only token probe: cheaper than a claim, so a wider budget.
             {
-              name: 'general',
-              ttl: env.rateLimits.general.ttl,
-              limit: env.rateLimits.general.limit,
+              name: 'invitation-validate',
+              ttl: env.rateLimits.invitationClaim.ttl,
+              limit: 10,
             },
+            { name: 'general', ttl: env.rateLimits.general.ttl, limit: env.rateLimits.general.limit },
           ],
           /*
            * Explicit storage instance.
            *
            * `ThrottlerStorageService` is the in-process store shipped with
-           * `@nestjs/throttler` v6 (it replaced `ThrottlerStorageMemoryService`
-           * in v5). It is declared explicitly rather than left to the implicit
-           * default so the deployment contract is visible: this backend is
-           * single-instance safe. Scaling past one replica requires swapping in
-           * a shared store (for example `throttler-storage-redis`), otherwise
-           * each replica would enforce its own independent budget.
+           * `@nestjs/throttler` v6 (it replaced `ThrottlerStorageMemoryService` in
+           * v5). Declaring it explicitly keeps the deployment contract visible:
+           * this backend is safe for a single instance. Scaling past one replica
+           * requires a shared store (e.g. `throttler-storage-redis`), otherwise
+           * each replica enforces its own independent budget and the effective
+           * limit multiplies by the replica count.
            */
           storage: new ThrottlerStorageService(),
         };
@@ -54,11 +60,15 @@ import { loadAppEnvironment } from './config/env';
     /*
      * Global guard chain, in execution order.
      *
-     * Registering both guards globally — rather than decorating controllers —
-     * is what makes the default-deny posture real: a new endpoint is protected
-     * the moment it exists, instead of only after someone remembers to annotate
-     * it. `@Public()` is the single, auditable escape hatch.
+     * Registering these globally — rather than decorating each controller — is
+     * what makes the default-deny posture real: a new endpoint is protected the
+     * moment it exists, instead of only after someone remembers to annotate it.
+     * `@Public()` is the single, auditable escape hatch.
+     *
+     * `ThrottlerGuard` runs first so a flood is rejected before any credential
+     * verification or database work happens.
      */
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RbacGuard },
   ],

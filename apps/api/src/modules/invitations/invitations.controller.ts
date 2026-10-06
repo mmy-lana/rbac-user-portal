@@ -1,4 +1,3 @@
-import * as crypto from 'node:crypto';
 import {
   BadRequestException,
   Body,
@@ -26,6 +25,9 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { APP_ENV, type AppEnvironment } from '../../config/env';
+import { Throttle } from '@nestjs/throttler';
+import { resolveRequestId } from '../../common/interfaces/request.interface';
+import { toStoredIp, extractUserAgent } from '../../common/utils/client-ip.util';
 import {
   SystemPermissions,
   SystemRole,
@@ -63,7 +65,7 @@ export class InvitationsController {
       ...(query.search ? { search: query.search } : {}),
     });
 
-    return listEnvelope(result.items, result.meta, { requestId: readRequestId(request) });
+    return listEnvelope(result.items, result.meta, { requestId: resolveRequestId(request) });
   }
 
   /**
@@ -74,6 +76,7 @@ export class InvitationsController {
    * so this endpoint cannot be used as a token oracle.
    */
   @Public()
+  @Throttle({ 'invitation-validate': { limit: 10, ttl: 60_000 } })
   @Get('validate/:token')
   async validateToken(
     @Param('token') token: string,
@@ -81,7 +84,7 @@ export class InvitationsController {
   ): Promise<ApiResponseEnvelope<unknown>> {
     assertTokenShape(token);
     const result = await this.invitationsService.validateToken(token);
-    return successEnvelope(result, { requestId: readRequestId(request) });
+    return successEnvelope(result, { requestId: resolveRequestId(request) });
   }
 
   /**
@@ -91,6 +94,7 @@ export class InvitationsController {
    * but the token minting inside a single transaction (see the service).
    */
   @Public()
+  @Throttle({ 'invitation-claim': { limit: 5, ttl: 60_000 } })
   @Post('accept/:token')
   @HttpCode(HttpStatus.CREATED)
   async acceptInvitation(
@@ -118,7 +122,7 @@ export class InvitationsController {
         user: session.user,
         tokens: { accessToken: session.tokens.accessToken, expiresIn: session.tokens.expiresIn },
       },
-      { requestId: readRequestId(request) },
+      { requestId: resolveRequestId(request) },
       HttpStatus.CREATED
     );
   }
@@ -134,7 +138,11 @@ export class InvitationsController {
     @Req() request: Request
   ): Promise<ApiResponseEnvelope<unknown>> {
     const created = await this.invitationsService.create(body, user, telemetryOf(request));
-    return successEnvelope(created, { requestId: readRequestId(request) }, HttpStatus.CREATED);
+    return successEnvelope(
+      created,
+      { requestId: resolveRequestId(request) },
+      HttpStatus.CREATED
+    );
   }
 
   /** `DELETE /api/v1/invitations/:id` — revoke a pending invitation. */
@@ -147,7 +155,7 @@ export class InvitationsController {
     @Req() request: Request
   ): Promise<ApiResponseEnvelope<{ revoked: boolean }>> {
     const result = await this.invitationsService.revoke(id, user, telemetryOf(request));
-    return successEnvelope(result, { requestId: readRequestId(request) });
+    return successEnvelope(result, { requestId: resolveRequestId(request) });
   }
 }
 
@@ -163,29 +171,10 @@ function assertTokenShape(token: string): void {
   }
 }
 
-/**
- * Client telemetry for audit rows.
- *
- * Behind a trusted proxy (Render) the socket address is the proxy's, so the
- * first entry of `x-forwarded-for` is the real client. `main.ts` enables
- * `trust proxy` to make Express populate `req.ip` correctly; this extraction
- * mirrors it for the audit trail.
- */
+/** Request attribution for the audit trail. */
 function telemetryOf(request: Request): RequestTelemetry {
-  const rawForwarded = request.headers['x-forwarded-for'];
-  const clientIp =
-    typeof rawForwarded === 'string'
-      ? rawForwarded.split(',')[0]?.trim() || request.socket.remoteAddress || '127.0.0.1'
-      : request.socket.remoteAddress || '127.0.0.1';
-
   return {
-    ipAddress: clientIp.slice(0, 45),
-    userAgent: request.headers['user-agent'] ?? 'unknown',
+    ipAddress: toStoredIp(request),
+    userAgent: extractUserAgent(request),
   };
-}
-
-function readRequestId(request: Request): string {
-  const raw = request.headers['x-request-id'];
-  if (typeof raw === 'string' && raw.length > 0 && raw.length <= 128) return raw;
-  return `req_${crypto.randomUUID()}`;
 }

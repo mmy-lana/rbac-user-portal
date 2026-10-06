@@ -26,6 +26,7 @@ import {
 import { DatabaseService } from '../database/database.service';
 import { AuthService } from '../auth/auth.service';
 import { UsersService } from '../users/users.service';
+import { AuditService } from '../audit/audit.service';
 import { APP_ENV, type AppEnvironment } from '../../config/env';
 import {
   INVITATION_CLAIM_PATH,
@@ -123,6 +124,7 @@ export class InvitationsService {
     private readonly dbService: DatabaseService,
     private readonly usersService: UsersService,
     private readonly authService: AuthService,
+    private readonly auditService: AuditService,
     @Inject(APP_ENV) private readonly env: AppEnvironment
   ) {}
 
@@ -179,12 +181,12 @@ export class InvitationsService {
       throw new BadRequestException('The invitation could not be issued.');
     }
 
-    await this.recordAudit({
-      actorId: actor.userId,
-      action: 'invitation:created',
-      resourceType: 'invitation',
-      resourceId: id,
-      payload: { email, roleId: input.roleId, role: role.name },
+    await this.auditService.recordInvitationIssued({
+      actor,
+      invitationId: id,
+      email,
+      roleId: input.roleId,
+      role: role.name,
       telemetry,
     });
 
@@ -252,7 +254,8 @@ export class InvitationsService {
 
     // Persist the derived EXPIRED state so the directory cannot keep showing a
     // stale "pending" invitation once its window has closed.
-    await this.sweepExpiredInvitations();
+    const expiredCount = await this.sweepExpiredInvitations();
+    await this.auditService.recordInvitationsExpired(expiredCount);
 
     return { items, meta: buildPaginationMeta(total, page, limit) };
   }
@@ -318,6 +321,31 @@ export class InvitationsService {
   ): Promise<AcceptedInvitation> {
     const tokenHash = hashToken(rawToken);
 
+    try {
+      return await this.runAcceptanceTransaction(tokenHash, input, telemetry);
+    } catch (error: unknown) {
+      // Rejected claims are the most security-relevant event on this endpoint:
+      // they mean someone presented a token that should not have worked. The
+      // audit write is deliberately outside the (rolled back) transaction.
+      await this.auditService.recordInvitationClaimRejected({
+        reason: error instanceof Error ? error.name : 'UnknownFailure',
+        telemetry,
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * The transactional body of {@link accept}.
+   *
+   * Kept separate so the rejection-audit wrapper above can own the failure path
+   * while this function stays a single linear transaction.
+   */
+  private async runAcceptanceTransaction(
+    tokenHash: string,
+    input: AcceptInvitationInput,
+    telemetry: RequestTelemetry
+  ): Promise<AcceptedInvitation> {
     const userId = await this.dbService.poolDb.transaction(async (tx) => {
       const locked = await tx
         .select({
@@ -393,6 +421,17 @@ export class InvitationsService {
 
     // Tokens are minted only once the row state is durably committed.
     const session = await this.authService.createSessionById(userId);
+
+    // The acceptance event itself is written inside the transaction so the event
+    // and the state change commit together; the role binding is recorded here, as
+    // the post-commit consequence the claim produced.
+    await this.auditService.recordRoleAssigned({
+      userId,
+      role: session.user.role,
+      source: 'invitation_claim',
+      telemetry,
+    });
+
     return {
       user: session.user,
       tokens: { accessToken: session.accessToken, expiresIn: session.expiresIn },
@@ -433,14 +472,7 @@ export class InvitationsService {
       );
     }
 
-    await this.recordAudit({
-      actorId: actor.userId,
-      action: 'invitation:revoked',
-      resourceType: 'invitation',
-      resourceId: invitationId,
-      payload: {},
-      telemetry,
-    });
+    await this.auditService.recordInvitationRevoked({ actor, invitationId, telemetry });
 
     return { revoked: true };
   }
@@ -504,11 +536,14 @@ export class InvitationsService {
    * The status is *computed* on read as well as persisted lazily here, so the
    * directory is correct even before the sweep runs.
    */
-  private async sweepExpiredInvitations(): Promise<void> {
-    await this.dbService.db
+  private async sweepExpiredInvitations(): Promise<number> {
+    const transitioned = await this.dbService.db
       .update(invitationsTable)
       .set({ status: 'EXPIRED', updatedAt: new Date() })
-      .where(and(eq(invitationsTable.status, 'PENDING'), lt(invitationsTable.expiresAt, new Date())));
+      .where(and(eq(invitationsTable.status, 'PENDING'), lt(invitationsTable.expiresAt, new Date())))
+      .returning({ id: invitationsTable.id });
+
+    return transitioned.length;
   }
 
   private toEntity(row: {
@@ -543,26 +578,6 @@ export class InvitationsService {
       createdAt: toIsoString(row.createdAt),
       updatedAt: toIsoString(row.updatedAt),
     };
-  }
-
-  private async recordAudit(entry: {
-    actorId: string | null;
-    action: string;
-    resourceType: string;
-    resourceId: string;
-    payload: Record<string, unknown>;
-    telemetry: RequestTelemetry;
-  }): Promise<void> {
-    await this.dbService.db.insert(auditLogsTable).values({
-      id: generateId('aud'),
-      actorId: entry.actorId,
-      action: entry.action,
-      resourceType: entry.resourceType,
-      resourceId: entry.resourceId,
-      payload: entry.payload,
-      ipAddress: entry.telemetry.ipAddress,
-      userAgent: entry.telemetry.userAgent,
-    });
   }
 }
 
