@@ -1,0 +1,10 @@
+{
+  "extends": "@rbac/tsconfig/react.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "paths": {
+      "@rbac/shared": ["../../packages/shared/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*", "vite.config.ts"]
+}

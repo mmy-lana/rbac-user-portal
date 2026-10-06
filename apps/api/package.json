@@ -1,0 +1,41 @@
+{
+  "name": "api",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "build": "nest build",
+    "start": "nest start",
+    "dev": "nest start --watch",
+    "start:prod": "node dist/main"
+  },
+  "dependencies": {
+    "@nestjs/common": "latest",
+    "@nestjs/core": "latest",
+    "@nestjs/jwt": "latest",
+    "@nestjs/passport": "latest",
+    "@nestjs/platform-express": "latest",
+    "@nestjs/throttler": "latest",
+    "@rbac/database": "workspace:*",
+    "@rbac/shared": "workspace:*",
+    "bcrypt": "latest",
+    "class-transformer": "latest",
+    "class-validator": "latest",
+    "cookie-parser": "latest",
+    "dotenv": "latest",
+    "passport": "latest",
+    "passport-jwt": "latest",
+    "reflect-metadata": "latest",
+    "rxjs": "latest"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "latest",
+    "@nestjs/schematics": "latest",
+    "@rbac/tsconfig": "workspace:*",
+    "@types/bcrypt": "latest",
+    "@types/cookie-parser": "latest",
+    "@types/express": "latest",
+    "@types/node": "latest",
+    "@types/passport-jwt": "latest",
+    "typescript": "latest"
+  }
+}

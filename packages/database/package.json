@@ -1,0 +1,28 @@
+{
+  "name": "@rbac/database",
+  "version": "0.0.0",
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:seed": "tsx src/seed.ts"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "latest",
+    "bcrypt": "latest",
+    "dotenv": "latest",
+    "drizzle-orm": "latest",
+    "ws": "latest"
+  },
+  "devDependencies": {
+    "@rbac/tsconfig": "workspace:*",
+    "@types/bcrypt": "latest",
+    "@types/node": "latest",
+    "@types/ws": "latest",
+    "drizzle-kit": "latest",
+    "tsx": "latest",
+    "typescript": "latest"
+  }
+}
