@@ -1,6 +1,34 @@
 @import "tailwindcss";
 
+/*
+ * `@rbac/ui` lives outside the Vite root and reaches the compiler through a
+ * pnpm symlink, so Tailwind's automatic source detection skips it (symlinked
+ * workspace packages resolve inside `node_modules`). Without these directives
+ * every class name owned by the design system would be purged from the build.
+ * Paths are relative to this stylesheet.
+ */
+@source "../../../../packages/ui/src";
+@source "../../../../packages/shared/src";
+
+/*
+ * Vault design system.
+ *
+ * Tailwind CSS v4 native theme tokens — there is deliberately no PostCSS or
+ * `tailwind.config.js`: the theme is declared here with `@theme` and compiled by
+ * `@tailwindcss/vite` (see `vite.config.ts`).
+ *
+ * Breakpoints mirror the viewport contract in the UI specification rather than
+ * Tailwind's stock defaults:
+ *   360px  — ultra-compact mobile, single column, 12px gutters.
+ *   390px  — standard mobile, single column.
+ *   430px  — large mobile, two-column stat containers allowed.
+ *   768px  — `tablet`: two-column forms, tabular matrices, 480px modals.
+ *   1024px — `desktop`: full vault layout, 540px blurred-backdrop modals.
+ */
 @theme {
+  --breakpoint-tablet: 768px;
+  --breakpoint-desktop: 1280px;
+
   --color-vault-bg: #090a0f;
   --color-vault-surface: #11131a;
   --color-vault-surface-elevated: #181b24;
@@ -30,4 +58,57 @@
 
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+/*
+ * Global baseline. Colours are pinned on the document so that any element
+ * rendered outside a themed container (portals, native overlays) inherits the
+ * vault surface rather than the browser default white.
+ */
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html {
+    background-color: var(--color-vault-bg);
+    /* Prevent iOS text inflation on rotation without disabling user zoom. */
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100dvh;
+    background-color: var(--color-vault-bg);
+    color: var(--color-vault-text-primary);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    /* Vault is a dense console: keep long identifiers from reflowing the page. */
+    overflow-wrap: break-word;
+  }
+
+  /* Visible focus halo everywhere, including for elements the primitives do not own. */
+  :focus-visible {
+    outline: 2px solid var(--color-vault-accent);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background-color: var(--color-vault-accent-surface);
+    color: var(--color-vault-text-primary);
+  }
+
+  /* Honour the reduced-motion preference for the spinners and pulses the
+     design system uses as state cues. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
 }
