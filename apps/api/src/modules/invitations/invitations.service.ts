@@ -7,11 +7,15 @@ import {
 } from '@nestjs/common';
 import * as crypto from 'crypto';
 import * as bcrypt from 'bcrypt';
-import { eq, and, sql } from 'drizzle-orm';
-import { invitations, users, roles, auditLogs } from '@rbac/database';
+import { eq, and, sql, invitations, users, roles, auditLogs } from '@rbac/database';
 import { DatabaseService } from '../database/database.service';
 import { AuthService } from '../auth/auth.service';
-import { InvitationEntity, SystemRole } from '@rbac/shared';
+import {
+  parseInvitationStatus,
+  parseSystemRole,
+  InvitationEntity,
+  SystemRole,
+} from '@rbac/shared';
 
 @Injectable()
 export class InvitationsService {
@@ -95,8 +99,8 @@ export class InvitationsService {
       id: r.id,
       email: r.email,
       roleId: r.roleId,
-      role: r.role || SystemRole.MEMBER,
-      status: r.status,
+      role: parseSystemRole(r.role),
+      status: parseInvitationStatus(r.status),
       invitedByUserId: r.invitedByUserId,
       invitedByEmail: r.invitedByEmail || 'system@vault.internal',
       expiresAt: r.expiresAt.toISOString(),
@@ -140,7 +144,7 @@ export class InvitationsService {
     }
 
     return {
-      role: inv.role || SystemRole.MEMBER,
+      role: parseSystemRole(inv.role),
       isValid: true,
     };
   }

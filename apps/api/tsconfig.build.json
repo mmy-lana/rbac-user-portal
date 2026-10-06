@@ -1,4 +1,19 @@
 {
   "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    /*
+     * `tsconfig.json` maps `@rbac/shared` to the workspace *source* tree so that
+     * editors and `tsc --noEmit` always type-check against the live sources.
+     * The emit build must not do that: files pulled in through `paths` from
+     * outside `rootDir` would be emitted into the API's `dist/` (TS6059).
+     * Clearing `paths` makes the compiler resolve the workspace packages through
+     * node_modules, i.e. their built `dist/*.d.ts`, which is exactly what the
+     * runtime loads as well.
+     */
+    "paths": {}
+  },
+  "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "test", "**/*spec.ts"]
 }

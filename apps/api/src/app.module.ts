@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { ThrottlerModule, ThrottlerStorageMemoryService } from '@nestjs/throttler';
+import { ThrottlerModule, ThrottlerStorageService } from '@nestjs/throttler';
 import { DatabaseModule } from './modules/database/database.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
@@ -15,7 +15,7 @@ import { InvitationsModule } from './modules/invitations/invitations.module';
             limit: 100,
           },
         ],
-        storage: new ThrottlerStorageMemoryService(),
+        storage: new ThrottlerStorageService(),
       }),
     }),
     DatabaseModule,

@@ -2,12 +2,20 @@
   "name": "rbac-user-portal",
   "version": "0.0.0",
   "private": true,
+  "packageManager": "pnpm@11.22.0",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
+    "typecheck": "turbo run typecheck",
     "lint": "turbo run lint",
     "test": "turbo run test",
-    "clean": "turbo run clean"
+    "clean": "turbo run clean",
+    "db:generate": "pnpm --filter @rbac/database db:generate",
+    "db:migrate": "pnpm --filter @rbac/database db:migrate",
+    "db:seed": "pnpm --filter @rbac/database db:seed"
   },
   "devDependencies": {
     "turbo": "latest",

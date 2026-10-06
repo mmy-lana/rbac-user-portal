@@ -12,6 +12,7 @@ dist
 build
 .next
 out
+*.tsbuildinfo
 
 # Turborepo cache
 .turbo
@@ -27,7 +28,8 @@ yarn-error.log*
 pnpm-debug.log*
 
 # Database & Migrations
-packages/database/migrations/.meta
+# NOTE: packages/database/migrations/.meta is intentionally committed. drizzle-kit
+# requires the journal to replay already-applied migrations on a fresh database.
 
 # repomix
 repomix-output.xml

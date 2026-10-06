@@ -1,11 +1,11 @@
 # Master Implementation Checklist
 
-- [ ] Task 1: Environment baseline, types, and DB client initializers
-  - [ ] Initialize Turborepo root workspace with `pnpm-workspace.yaml`, `.npmrc`, and `turbo.json`.
-  - [ ] Setup `packages/tsconfig` with strict root and node/react base configuration templates.
-  - [ ] Setup `packages/shared` with standardized DTO schemas, enumerations, constants, and API response wrappers.
-  - [ ] Configure `packages/database` with Neon serverless connection, Drizzle schema, migration generator, and standalone seed script.
-  - [ ] Validate connection pooling and migration scripts targeting Neon PostgreSQL.
+- [x] Task 1: Environment baseline, types, and DB client initializers
+  - [x] Initialize Turborepo root workspace with `pnpm-workspace.yaml`, `.npmrc`, and `turbo.json`.
+  - [x] Setup `packages/tsconfig` with strict root and node/react base configuration templates.
+  - [x] Setup `packages/shared` with standardized DTO schemas, enumerations, constants, and API response wrappers.
+  - [x] Configure `packages/database` with Neon serverless connection, Drizzle schema, migration generator, and standalone seed script.
+  - [x] Validate connection pooling and migration scripts targeting Neon PostgreSQL.
 
 - [ ] Task 2: Core design system primitives and atomic UI components
   - [ ] Initialize `packages/ui` and configure Tailwind CSS v4 design tokens adhering to the Vault theme.

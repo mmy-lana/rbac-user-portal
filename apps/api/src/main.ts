@@ -1,3 +1,6 @@
+// `emitDecoratorMetadata` only records type metadata; the runtime that reads it
+// must be loaded before any decorated class is evaluated.
+import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import cookieParser from 'cookie-parser';

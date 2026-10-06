@@ -1,8 +1,9 @@
 {
   "extends": "@rbac/tsconfig/react.json",
   "compilerOptions": {
-    "rootDir": "src",
-    "outDir": "dist",
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "paths": {
       "@rbac/shared": ["../shared/src/index.ts"]
     }

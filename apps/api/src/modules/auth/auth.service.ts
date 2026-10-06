@@ -1,8 +1,7 @@
 import { Injectable, UnauthorizedException, ForbiddenException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
-import { eq } from 'drizzle-orm';
-import { users, rolePermissions, permissions } from '@rbac/database';
+import { eq, users, rolePermissions, permissions } from '@rbac/database';
 import { DatabaseService } from '../database/database.service';
 import { UsersService } from '../users/users.service';
 import {

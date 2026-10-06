@@ -1,10 +1,33 @@
-import { pgTable, varchar, timestamp, pgEnum, uniqueIndex, index } from 'drizzle-orm/pg-core';
+import {
+  pgTable,
+  varchar,
+  timestamp,
+  pgEnum,
+  uniqueIndex,
+  index,
+} from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { roles } from './roles';
 import { users } from './users';
 
-export const invitationStatusEnum = pgEnum('invitation_status', ['PENDING', 'ACCEPTED', 'EXPIRED', 'REVOKED']);
+export const invitationStatusEnum = pgEnum('invitation_status', [
+  'PENDING',
+  'ACCEPTED',
+  'EXPIRED',
+  'REVOKED',
+]);
 
+/**
+ * Invitation ledger.
+ *
+ * Only the SHA-256 hex digest of the claim token is persisted — the raw token
+ * exists once, in the dispatch payload, and can never be recovered from the row.
+ *
+ * The partial unique index `uq_active_invitation_email` is the hard guarantee
+ * against duplicate live invitations: re-inviting an address that already has a
+ * `PENDING` row raises a unique violation instead of silently creating a second
+ * claim link.
+ */
 export const invitations = pgTable(
   'invitations',
   {
@@ -23,12 +46,15 @@ export const invitations = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
-  (t) => ({
-    uqActiveEmail: uniqueIndex('uq_active_invitation_email')
-      .on(t.email)
+  (table) => [
+    index('idx_invitations_token_hash').on(table.tokenHash),
+    index('idx_invitations_email').on(table.email),
+    index('idx_invitations_status').on(table.status),
+    uniqueIndex('uq_active_invitation_email')
+      .on(table.email)
       .where(sql`status = 'PENDING'`),
-    idxExpiresAt: index('idx_invitations_expires_at')
-      .on(t.expiresAt)
+    index('idx_invitations_expires_at')
+      .on(table.expiresAt)
       .where(sql`status = 'PENDING'`),
-  })
+  ]
 );
