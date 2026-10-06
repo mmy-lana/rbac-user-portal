@@ -1,4 +1,5 @@
 export * from './constants/roles.constant';
+export * from './constants/invitation.constant';
 export * from './constants/permissions.constant';
 export * from './constants/role-permissions.constant';
 export * from './types/api-response.type';

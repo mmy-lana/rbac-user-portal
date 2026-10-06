@@ -4,5 +4,6 @@ export * from './card';
 export * from './data-view';
 export * from './input';
 export * from './modal';
+export * from './select';
 export * from './hooks/use-focus-trap';
 export * from './utils/cn';

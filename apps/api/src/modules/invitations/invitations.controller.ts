@@ -1,154 +1,191 @@
+import * as crypto from 'node:crypto';
 import {
-  Controller,
-  Get,
-  Post,
-  Delete,
-  Param,
+  BadRequestException,
   Body,
-  Query,
-  UseGuards,
-  Req,
-  Res,
+  Controller,
+  Delete,
+  Get,
   HttpCode,
   HttpStatus,
+  Inject,
+  Param,
+  Post,
+  Query,
+  Req,
+  Res,
 } from '@nestjs/common';
-import { Request, Response } from 'express';
-import { InvitationsService } from './invitations.service';
-import { JwtAuthGuard, Public } from '../../common/guards/jwt-auth.guard';
-import { RbacGuard } from '../../common/guards/rbac.guard';
+import type { Request, Response } from 'express';
+import { InvitationsService, type RequestTelemetry } from './invitations.service';
+import {
+  AcceptInvitationDto,
+  CreateInvitationDto,
+  ListInvitationsQueryDto,
+} from './dto/invitations.dto';
+import { Public } from '../../common/guards/jwt-auth.guard';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
-import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { APP_ENV, type AppEnvironment } from '../../config/env';
 import {
-  AuthenticatedUserPayload,
-  SystemRole,
   SystemPermissions,
-  ApiResponseEnvelope,
+  SystemRole,
+  listEnvelope,
+  successEnvelope,
+  type AuthenticatedUserPayload,
+  type ApiResponseEnvelope,
 } from '@rbac/shared';
 
+/**
+ * Invitation endpoints.
+ *
+ * Registration order is load-bearing: `validate/:token` and `accept/:token` are
+ * declared before `POST /` so the literal segments are never shadowed by a
+ * parameterised route, and `DELETE /:id` is declared last.
+ */
 @Controller('invitations')
-@UseGuards(JwtAuthGuard, RbacGuard)
 export class InvitationsController {
-  constructor(private readonly invitationsService: InvitationsService) {}
+  constructor(
+    private readonly invitationsService: InvitationsService,
+    @Inject(APP_ENV) private readonly env: AppEnvironment
+  ) {}
 
-  @Get()
-  @Roles(SystemRole.OWNER, SystemRole.ADMIN, SystemRole.AUDITOR)
+  /** `GET /api/v1/invitations` — paginated directory. */
   @RequirePermissions(SystemPermissions.INVITATIONS_READ)
-  async findAll(@Query('page') page = '1', @Query('limit') limit = '20'): Promise<ApiResponseEnvelope<unknown>> {
-    const res = await this.invitationsService.listInvitations(parseInt(page, 10), parseInt(limit, 10));
-    return {
-      success: true,
-      statusCode: 200,
-      data: res.items,
-      error: null,
-      meta: {
-        timestamp: new Date().toISOString(),
-        requestId: `req_${Date.now()}`,
-        pagination: {
-          totalRecords: res.total,
-          page: parseInt(page, 10),
-          limit: parseInt(limit, 10),
-          totalPages: Math.ceil(res.total / parseInt(limit, 10)) || 1,
-        },
-      },
-    };
+  @Get()
+  async findAll(
+    @Query() query: ListInvitationsQueryDto,
+    @Req() request: Request
+  ): Promise<ApiResponseEnvelope<unknown>> {
+    const result = await this.invitationsService.list({
+      ...(typeof request.query['page'] === 'string' ? { page: request.query['page'] } : {}),
+      ...(typeof request.query['limit'] === 'string' ? { limit: request.query['limit'] } : {}),
+      ...(query.status ? { status: query.status } : {}),
+      ...(query.search ? { search: query.search } : {}),
+    });
+
+    return listEnvelope(result.items, result.meta, { requestId: readRequestId(request) });
   }
 
+  /**
+   * `GET /api/v1/invitations/validate/:token` — public token probe.
+   *
+   * The response carries the assigned role only; the target email is withheld
+   * until the claim completes. The service also enforces a constant latency floor
+   * so this endpoint cannot be used as a token oracle.
+   */
   @Public()
   @Get('validate/:token')
-  async validateToken(@Param('token') token: string): Promise<ApiResponseEnvelope<unknown>> {
-    await new Promise((resolve) => setTimeout(resolve, 100));
+  async validateToken(
+    @Param('token') token: string,
+    @Req() request: Request
+  ): Promise<ApiResponseEnvelope<unknown>> {
+    assertTokenShape(token);
     const result = await this.invitationsService.validateToken(token);
-
-    return {
-      success: true,
-      statusCode: 200,
-      data: result,
-      error: null,
-      meta: {
-        timestamp: new Date().toISOString(),
-        requestId: `req_${Date.now()}`,
-      },
-    };
+    return successEnvelope(result, { requestId: readRequestId(request) });
   }
 
+  /**
+   * `POST /api/v1/invitations/accept/:token` — public claim pipeline.
+   *
+   * Creates the account, marks the invitation accepted and issues a session, all
+   * but the token minting inside a single transaction (see the service).
+   */
   @Public()
   @Post('accept/:token')
   @HttpCode(HttpStatus.CREATED)
   async acceptInvitation(
     @Param('token') token: string,
-    @Body() body: { firstName: string; lastName: string; password: string },
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response
+    @Body() body: AcceptInvitationDto,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response
   ): Promise<ApiResponseEnvelope<unknown>> {
-    const rawForwarded = req.headers['x-forwarded-for'];
-    const clientIp =
-      typeof rawForwarded === 'string'
-        ? rawForwarded.split(',')[0]?.trim() || req.socket.remoteAddress || '127.0.0.1'
-        : req.socket.remoteAddress || '127.0.0.1';
+    assertTokenShape(token);
 
-    const session = await this.invitationsService.acceptInvitation(token, body, clientIp);
+    const session = await this.invitationsService.accept(token, body, telemetryOf(request));
 
-    res.cookie('__Host-vault_refresh_token', session.refreshToken, {
+    // Claiming signs the invitee straight in: the same HttpOnly cookie contract
+    // as `/auth/login` applies, so there is exactly one session issuance path.
+    response.cookie(this.env.refreshCookieName, session.refreshToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: true,
       sameSite: 'strict',
       path: '/',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
+      maxAge: this.env.refreshTokenTtlMs,
     });
 
-    return {
-      success: true,
-      statusCode: 201,
-      data: {
+    return successEnvelope(
+      {
         user: session.user,
-        tokens: {
-          accessToken: session.accessToken,
-          expiresIn: session.expiresIn,
-        },
+        tokens: { accessToken: session.tokens.accessToken, expiresIn: session.tokens.expiresIn },
       },
-      error: null,
-      meta: {
-        timestamp: new Date().toISOString(),
-        requestId: `req_${Date.now()}`,
-      },
-    };
+      { requestId: readRequestId(request) },
+      HttpStatus.CREATED
+    );
   }
 
-  @Post()
+  /** `POST /api/v1/invitations` — dispatch a new invitation. */
   @Roles(SystemRole.OWNER, SystemRole.ADMIN)
   @RequirePermissions(SystemPermissions.INVITATIONS_CREATE)
+  @Post()
+  @HttpCode(HttpStatus.CREATED)
   async create(
-    @Body() body: { email: string; roleId: string },
-    @CurrentUser() user: AuthenticatedUserPayload
+    @Body() body: CreateInvitationDto,
+    @CurrentUser() user: AuthenticatedUserPayload,
+    @Req() request: Request
   ): Promise<ApiResponseEnvelope<unknown>> {
-    const result = await this.invitationsService.createInvitation(body, user.userId);
-    return {
-      success: true,
-      statusCode: 201,
-      data: result,
-      error: null,
-      meta: {
-        timestamp: new Date().toISOString(),
-        requestId: `req_${Date.now()}`,
-      },
-    };
+    const created = await this.invitationsService.create(body, user, telemetryOf(request));
+    return successEnvelope(created, { requestId: readRequestId(request) }, HttpStatus.CREATED);
   }
 
-  @Delete(':id')
-  @Roles(SystemRole.OWNER, SystemRole.ADMIN)
+  /** `DELETE /api/v1/invitations/:id` — revoke a pending invitation. */
   @RequirePermissions(SystemPermissions.INVITATIONS_REVOKE)
-  async revoke(@Param('id') id: string): Promise<ApiResponseEnvelope<unknown>> {
-    const result = await this.invitationsService.revokeInvitation(id);
-    return {
-      success: true,
-      statusCode: 200,
-      data: result,
-      error: null,
-      meta: {
-        timestamp: new Date().toISOString(),
-        requestId: `req_${Date.now()}`,
-      },
-    };
+  @Delete(':id')
+  @HttpCode(HttpStatus.OK)
+  async revoke(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUserPayload,
+    @Req() request: Request
+  ): Promise<ApiResponseEnvelope<{ revoked: boolean }>> {
+    const result = await this.invitationsService.revoke(id, user, telemetryOf(request));
+    return successEnvelope(result, { requestId: readRequestId(request) });
   }
+}
+
+/**
+ * Rejects malformed claim tokens before they reach the database.
+ *
+ * A token is exactly `INVITATION_TOKEN_BYTES * 2` hex characters; anything else
+ * cannot match a stored digest, so rejecting it early avoids a pointless query.
+ */
+function assertTokenShape(token: string): void {
+  if (!/^[0-9a-f]{64}$/.test(token)) {
+    throw new BadRequestException('This invitation link is malformed.');
+  }
+}
+
+/**
+ * Client telemetry for audit rows.
+ *
+ * Behind a trusted proxy (Render) the socket address is the proxy's, so the
+ * first entry of `x-forwarded-for` is the real client. `main.ts` enables
+ * `trust proxy` to make Express populate `req.ip` correctly; this extraction
+ * mirrors it for the audit trail.
+ */
+function telemetryOf(request: Request): RequestTelemetry {
+  const rawForwarded = request.headers['x-forwarded-for'];
+  const clientIp =
+    typeof rawForwarded === 'string'
+      ? rawForwarded.split(',')[0]?.trim() || request.socket.remoteAddress || '127.0.0.1'
+      : request.socket.remoteAddress || '127.0.0.1';
+
+  return {
+    ipAddress: clientIp.slice(0, 45),
+    userAgent: request.headers['user-agent'] ?? 'unknown',
+  };
+}
+
+function readRequestId(request: Request): string {
+  const raw = request.headers['x-request-id'];
+  if (typeof raw === 'string' && raw.length > 0 && raw.length <= 128) return raw;
+  return `req_${crypto.randomUUID()}`;
 }

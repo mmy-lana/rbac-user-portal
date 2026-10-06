@@ -8,7 +8,11 @@ export interface VaultModalProps {
   isOpen: boolean;
   onClose: () => void;
   title: string;
-  subtitle?: string;
+  /**
+   * Supporting copy under the title. Explicit `undefined` is accepted so callers
+   * can forward a conditional value without conditional spreading.
+   */
+  subtitle?: string | undefined;
   children: React.ReactNode;
   /** Footer controls (confirm/cancel). Must hold 44px-minimum touch targets. */
   footer?: React.ReactNode;
