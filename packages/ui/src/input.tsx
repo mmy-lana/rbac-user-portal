@@ -4,10 +4,14 @@ import { cn } from './utils/cn';
 export interface VaultInputProps
   extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'size'> {
   label: string;
-  /** Error message. Presence flips the field into the destructive status. */
-  error?: string;
+  /**
+   * Error message. Presence flips the field into the destructive status.
+   * Explicit `undefined` is accepted so callers can forward a conditional value
+   * without spreading the prop into existence under `exactOptionalPropertyTypes`.
+   */
+  error?: string | undefined;
   /** Supporting copy shown only while the field is valid. */
-  helperText?: string;
+  helperText?: string | undefined;
   /** Renders the field in a busy/pending status (e.g. validating a claim token). */
   isPending?: boolean;
 }

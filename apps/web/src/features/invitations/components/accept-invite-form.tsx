@@ -13,7 +13,7 @@ export const AcceptInviteForm: React.FC = () => {
   const [error, setError] = React.useState('');
   const [loading, setLoading] = React.useState(false);
   const [validating, setValidating] = React.useState(true);
-  const setAuth = useAuthStore((s) => s.setAuth);
+  const setSession = useAuthStore((s) => s.setSession);
   const navigate = useNavigate();
 
   React.useEffect(() => {
@@ -59,7 +59,7 @@ export const AcceptInviteForm: React.FC = () => {
         throw new Error(json.error?.message || 'Clearance authorization failed');
       }
 
-      setAuth(json.data.user, json.data.tokens.accessToken);
+      setSession(json.data.user, json.data.tokens.accessToken);
       navigate('/');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Submission rejected');

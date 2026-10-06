@@ -1,15 +1,20 @@
 import * as React from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../features/auth/store/auth-store';
+import { useLogout } from '../../features/auth/hooks/use-auth';
 import { VaultBadge, VaultButton } from '@rbac/ui';
 
 export const AppShell: React.FC = () => {
-  const { user, clearAuth } = useAuthStore();
+  const user = useAuthStore((state) => state.user);
   const navigate = useNavigate();
+  const logoutMutation = useLogout();
 
-  const handleLogout = () => {
-    clearAuth();
-    navigate('/login');
+  const handleLogout = async () => {
+    // The server-side revocation runs in the mutation; the store is cleared in
+    // `onSettled` regardless of the outcome, so the UI never leaves the user
+    // stranded in a half-authenticated state.
+    await logoutMutation.mutateAsync().catch(() => undefined);
+    navigate('/login', { replace: true });
   };
 
   return (
@@ -28,7 +33,12 @@ export const AppShell: React.FC = () => {
               <span className="text-[10px] font-mono text-vault-accent uppercase">{user.role}</span>
             </div>
             <VaultBadge variant="emerald">{user.role}</VaultBadge>
-            <VaultButton variant="ghost" onClick={handleLogout} className="text-xs">
+            <VaultButton
+              variant="ghost"
+              onClick={() => void handleLogout()}
+              isLoading={logoutMutation.isPending}
+              className="text-xs"
+            >
               TERMINATE
             </VaultButton>
           </div>

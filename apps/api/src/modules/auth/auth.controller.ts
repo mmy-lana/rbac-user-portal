@@ -1,120 +1,170 @@
-import { Controller, Post, Get, Body, Req, Res, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
-import { Request, Response } from 'express';
-import { AuthService } from './auth.service';
-import { Public, JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Inject,
+  Post,
+  Req,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
+import * as crypto from 'node:crypto';
+import type { CookieOptions, Response } from 'express';
+import { AuthService, type LoginResult } from './auth.service';
+import { LoginDto } from './dto/login.dto';
+import { Public } from '../../common/guards/jwt-auth.guard';
+import { JwtRefreshGuard } from '../../common/guards/jwt-refresh.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { AuthenticatedUserPayload, ApiResponseEnvelope } from '@rbac/shared';
+import { RequirePermissions } from '../../common/decorators/permissions.decorator';
+import { SystemPermissions, successEnvelope, type ApiResponseEnvelope } from '@rbac/shared';
+import { APP_ENV, type AppEnvironment } from '../../config/env';
+import type { RefreshSession } from '../../common/interfaces/request.interface';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    @Inject(APP_ENV) private readonly env: AppEnvironment
+  ) {}
 
+  /**
+   * `POST /api/v1/auth/login`
+   *
+   * Public and rate limited. Returns the access token in the body (the client
+   * keeps it in memory only) and delivers the refresh token exclusively as an
+   * HttpOnly, `SameSite=Strict`, `Secure` cookie.
+   */
   @Public()
   @Post('login')
   @HttpCode(HttpStatus.OK)
   async login(
-    @Body() body: { email: string; password: string },
-    @Res({ passthrough: true }) res: Response
+    @Body() body: LoginDto,
+    @Res({ passthrough: true }) response: Response,
+    @Req() request: { headers: Record<string, unknown> }
   ): Promise<ApiResponseEnvelope<unknown>> {
-    const validatedUser = await this.authService.validateUserCredentials(body.email, body.password);
-    const session = await this.authService.createSession(validatedUser);
+    const result = await this.authService.createSession(
+      await this.authService.validateUserCredentials(body.email, body.password)
+    );
 
-    res.cookie('__Host-vault_refresh_token', session.refreshTokenRaw, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      path: '/',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
+    this.issueRefreshCookie(response, result.refreshToken);
 
-    return {
-      success: true,
-      statusCode: 200,
-      data: {
-        user: session.user,
-        tokens: {
-          accessToken: session.accessToken,
-          expiresIn: session.expiresIn,
-        },
+    return successEnvelope(
+      {
+        user: result.user,
+        principal: result.principal,
+        tokens: { accessToken: result.accessToken, expiresIn: result.expiresIn },
       },
-      error: null,
-      meta: {
-        timestamp: new Date().toISOString(),
-        requestId: `req_${Date.now()}`,
-      },
-    };
+      { requestId: readRequestId(request.headers) },
+      HttpStatus.OK
+    );
   }
 
+  /**
+   * `POST /api/v1/auth/refresh`
+   *
+   * Public with respect to the access token, but gated by `JwtRefreshGuard`.
+   * The consumed refresh token is rotated and reissued as a replacement cookie.
+   */
   @Public()
+  @UseGuards(JwtRefreshGuard)
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   async refresh(
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response
+    @Req() request: { headers: Record<string, unknown>; refreshSession?: RefreshSession },
+    @Res({ passthrough: true }) response: Response
   ): Promise<ApiResponseEnvelope<unknown>> {
-    const rawToken = req.cookies['__Host-vault_refresh_token'] as string;
-    const session = await this.authService.rotateSession(rawToken);
+    const session = request.refreshSession;
+    if (!session) {
+      throw new Error('Refresh session was not attached by JwtRefreshGuard.');
+    }
 
-    res.cookie('__Host-vault_refresh_token', session.refreshTokenRaw, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      path: '/',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
+    this.issueRefreshCookie(response, session.refreshToken);
 
-    return {
-      success: true,
-      statusCode: 200,
-      data: {
-        tokens: {
-          accessToken: session.accessToken,
-          expiresIn: session.expiresIn,
-        },
+    return successEnvelope(
+      {
+        principal: session.principal,
+        tokens: { accessToken: session.accessToken, expiresIn: session.expiresIn },
       },
-      error: null,
-      meta: {
-        timestamp: new Date().toISOString(),
-        requestId: `req_${Date.now()}`,
-      },
-    };
+      { requestId: readRequestId(request.headers) },
+      HttpStatus.OK
+    );
   }
 
-  @UseGuards(JwtAuthGuard)
+  /**
+   * `POST /api/v1/auth/logout`
+   *
+   * Invalidates the stored refresh digest and clears the cookie, so the session
+   * dies server-side even if the caller still holds a live access token.
+   */
+  @RequirePermissions(SystemPermissions.USERS_READ)
   @Post('logout')
   @HttpCode(HttpStatus.OK)
   async logout(
-    @CurrentUser() user: AuthenticatedUserPayload,
-    @Res({ passthrough: true }) res: Response
-  ): Promise<ApiResponseEnvelope<unknown>> {
+    @CurrentUser() user: { userId: string },
+    @Req() request: { headers: Record<string, unknown> },
+    @Res({ passthrough: true }) response: Response
+  ): Promise<ApiResponseEnvelope<{ revoked: boolean }>> {
     await this.authService.terminateSession(user.userId);
-    res.clearCookie('__Host-vault_refresh_token', { path: '/' });
+    this.clearRefreshCookie(response);
 
-    return {
-      success: true,
-      statusCode: 200,
-      data: { revoked: true },
-      error: null,
-      meta: {
-        timestamp: new Date().toISOString(),
-        requestId: `req_${Date.now()}`,
-      },
-    };
+    return successEnvelope(
+      { revoked: true },
+      { requestId: readRequestId(request.headers) },
+      HttpStatus.OK
+    );
   }
 
-  @UseGuards(JwtAuthGuard)
+  /**
+   * `GET /api/v1/auth/me`
+   *
+   * Returns the caller's profile with the effective permission list, which the
+   * client uses to build its permission-aware navigation.
+   */
+  @RequirePermissions(SystemPermissions.USERS_READ)
   @Get('me')
-  async me(@CurrentUser() user: AuthenticatedUserPayload): Promise<ApiResponseEnvelope<unknown>> {
-    const details = await this.authService.getMe(user.userId);
+  async me(
+    @CurrentUser() user: { userId: string },
+    @Req() request: { headers: Record<string, unknown> }
+  ): Promise<ApiResponseEnvelope<unknown>> {
+    const profile = await this.authService.getMe(user.userId);
+    return successEnvelope(profile, { requestId: readRequestId(request.headers) });
+  }
+
+  /**
+   * Cookie policy for the refresh token.
+   *
+   * The `__Host-` prefix is a browser-enforced contract: the cookie is accepted
+   * only when it is `Secure`, scoped to `Path=/`, and carries no `Domain`
+   * attribute — which rules out subdomain cookie-fixation and cookie-tossing
+   * attacks. Because `Secure` is mandatory under that prefix, a local
+   * development origin must be reached over HTTPS (or through a TLS proxy) for
+   * the refresh flow to work at all; this is intentional.
+   */
+  private cookieOptions(): CookieOptions {
     return {
-      success: true,
-      statusCode: 200,
-      data: details,
-      error: null,
-      meta: {
-        timestamp: new Date().toISOString(),
-        requestId: `req_${Date.now()}`,
-      },
+      httpOnly: true,
+      secure: true,
+      sameSite: 'strict',
+      path: '/',
+      maxAge: this.env.refreshTokenTtlMs,
     };
   }
+
+  private issueRefreshCookie(response: Response, token: string): void {
+    response.cookie(this.env.refreshCookieName, token, this.cookieOptions());
+  }
+
+  private clearRefreshCookie(response: Response): void {
+    const { maxAge: _maxAge, ...options } = this.cookieOptions();
+    response.clearCookie(this.env.refreshCookieName, options);
+  }
+}
+
+/** Echoes the inbound correlation id so client and server logs can be joined. */
+function readRequestId(headers: Record<string, unknown>): string {
+  const raw = headers['x-request-id'];
+  if (typeof raw === 'string' && raw.length > 0 && raw.length <= 128) return raw;
+  return `req_${crypto.randomUUID()}`;
 }

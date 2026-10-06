@@ -89,7 +89,7 @@ export class InvitationsController {
 
     const session = await this.invitationsService.acceptInvitation(token, body, clientIp);
 
-    res.cookie('__Host-vault_refresh_token', session.refreshTokenRaw, {
+    res.cookie('__Host-vault_refresh_token', session.refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',

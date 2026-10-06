@@ -7,7 +7,7 @@ import { InvitationsTable } from '../features/invitations/components/invitations
 import { useAuthStore } from '../features/auth/store/auth-store';
 
 export const AppRouter: React.FC = () => {
-  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const isAuthenticated = useAuthStore((s) => s.user !== null);
 
   return (
     <Routes>

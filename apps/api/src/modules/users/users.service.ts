@@ -30,8 +30,8 @@ export interface UserWithSecrets {
 }
 
 /**
- * Row shape returned by non-credential lookups: identical to {@link UserWithSecrets}
- * without the password digest.
+ * Row shape returned by non-credential lookups: identical to
+ * {@link UserWithSecrets} without the password digest.
  */
 export interface UserRecord {
   id: string;
@@ -46,12 +46,52 @@ export interface UserRecord {
   updatedAt: Date;
 }
 
+/** Session-bearing projection used by the refresh flow. */
+export interface AuthUserRecord extends UserWithSecrets {
+  refreshTokenHash: string | null;
+}
+
+/** Joined row as returned by Drizzle: enums are still string unions here. */
+interface JoinedUserRow {
+  id: string;
+  email: string;
+  passwordHash: string;
+  firstName: string;
+  lastName: string;
+  roleId: string;
+  role: string | null;
+  status: string;
+  refreshTokenHash: string | null;
+  lastLoginAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+function toAuthUserRecord(row: JoinedUserRow): AuthUserRecord {
+  return {
+    id: row.id,
+    email: row.email,
+    passwordHash: row.passwordHash,
+    firstName: row.firstName,
+    lastName: row.lastName,
+    roleId: row.roleId,
+    // `pgEnum` columns surface as string unions; the contract uses enums.
+    role: row.role === null ? null : parseSystemRole(row.role),
+    status: parseUserStatus(row.status),
+    refreshTokenHash: row.refreshTokenHash,
+    lastLoginAt: row.lastLoginAt,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
 /**
  * Projects a joined row onto the shared `UserEntity` contract.
  *
- * `UserEntity` is a *composed* projection — `role` comes from the `roles` join,
- * timestamps are serialised to ISO-8601, and a missing role is a hard error
- * rather than a silent `MEMBER` downgrade.
+ * `UserEntity` is a *composed* projection — `role` comes from the `roles` join
+ * and timestamps are serialised to ISO-8601. A row whose role does not resolve
+ * is a hard error rather than a silent downgrade to `MEMBER`, which would turn a
+ * data-integrity fault into an authorisation fault.
  */
 export function toUserEntity(user: UserRecord): UserEntity {
   if (user.role === null) {
@@ -72,13 +112,29 @@ export function toUserEntity(user: UserRecord): UserEntity {
   };
 }
 
+/** Projection shared by every user lookup; `role` carries an explicit alias. */
+const userProjection = {
+  id: users.id,
+  email: users.email,
+  passwordHash: users.passwordHash,
+  firstName: users.firstName,
+  lastName: users.lastName,
+  roleId: users.roleId,
+  role: roles.name,
+  status: users.status,
+  refreshTokenHash: users.refreshTokenHash,
+  lastLoginAt: users.lastLoginAt,
+  createdAt: users.createdAt,
+  updatedAt: users.updatedAt,
+} as const;
+
 @Injectable()
 export class UsersService {
   constructor(private readonly dbService: DatabaseService) {}
 
   /**
-   * Credential lookup for the login flow. Returns `undefined` when no account
-   * matches the address.
+   * Credential lookup for the login and refresh flows. Returns `undefined` when
+   * no account matches the address.
    *
    * `role: roles.name` is an explicit alias: `UserEntity.role` is typed as the
    * `SystemRole` enum, so the `pgEnum` string union must be narrowed by
@@ -86,113 +142,41 @@ export class UsersService {
    */
   async findByEmail(email: string): Promise<UserWithSecrets | undefined> {
     const rows = await this.dbService.db
-      .select({
-        id: users.id,
-        email: users.email,
-        passwordHash: users.passwordHash,
-        firstName: users.firstName,
-        lastName: users.lastName,
-        roleId: users.roleId,
-        role: roles.name,
-        status: users.status,
-        lastLoginAt: users.lastLoginAt,
-        createdAt: users.createdAt,
-        updatedAt: users.updatedAt,
-      })
+      .select(userProjection)
       .from(users)
       .leftJoin(roles, eq(users.roleId, roles.id))
       .where(eq(users.email, email))
       .limit(1);
 
     const row = rows.at(0);
-    if (!row) return undefined;
-
-    return {
-      id: row.id,
-      email: row.email,
-      passwordHash: row.passwordHash,
-      firstName: row.firstName,
-      lastName: row.lastName,
-      roleId: row.roleId,
-      role: row.role === null ? null : parseSystemRole(row.role),
-      status: parseUserStatus(row.status),
-      lastLoginAt: row.lastLoginAt,
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt,
-    };
+    return row ? toAuthUserRecord(row as JoinedUserRow) : undefined;
   }
 
+  /** Session-bearing lookup used by the single-use refresh rotation. */
+  async findAuthRecordById(id: string): Promise<AuthUserRecord | undefined> {
+    const rows = await this.dbService.db
+      .select(userProjection)
+      .from(users)
+      .leftJoin(roles, eq(users.roleId, roles.id))
+      .where(eq(users.id, id))
+      .limit(1);
+
+    const row = rows.at(0);
+    return row ? toAuthUserRecord(row as JoinedUserRow) : undefined;
+  }
+
+  /** Public profile projection for `/me` and directory views. */
   async findById(id: string): Promise<UserEntity | undefined> {
-    const rows = await this.dbService.db
-      .select({
-        id: users.id,
-        email: users.email,
-        firstName: users.firstName,
-        lastName: users.lastName,
-        roleId: users.roleId,
-        role: roles.name,
-        status: users.status,
-        lastLoginAt: users.lastLoginAt,
-        createdAt: users.createdAt,
-        updatedAt: users.updatedAt,
-      })
-      .from(users)
-      .leftJoin(roles, eq(users.roleId, roles.id))
-      .where(eq(users.id, id))
-      .limit(1);
-
-    const row = rows.at(0);
-    if (!row || row.role === null) return undefined;
-
-    return toUserEntity({
-      id: row.id,
-      email: row.email,
-      firstName: row.firstName,
-      lastName: row.lastName,
-      roleId: row.roleId,
-      role: parseSystemRole(row.role),
-      status: parseUserStatus(row.status),
-      lastLoginAt: row.lastLoginAt,
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt,
-    });
+    const record = await this.findAuthRecordById(id);
+    return record ? toUserEntity(record) : undefined;
   }
 
-  /** Full record (no password digest) keyed by id — used by audit/ownership checks. */
   async findRecordById(id: string): Promise<UserRecord | undefined> {
-    const rows = await this.dbService.db
-      .select({
-        id: users.id,
-        email: users.email,
-        firstName: users.firstName,
-        lastName: users.lastName,
-        roleId: users.roleId,
-        role: roles.name,
-        status: users.status,
-        lastLoginAt: users.lastLoginAt,
-        createdAt: users.createdAt,
-        updatedAt: users.updatedAt,
-      })
-      .from(users)
-      .leftJoin(roles, eq(users.roleId, roles.id))
-      .where(eq(users.id, id))
-      .limit(1);
+    const record = await this.findAuthRecordById(id);
+    if (!record) return undefined;
 
-    const row = rows.at(0);
-    if (!row) return undefined;
-
-    return {
-      id: row.id,
-      email: row.email,
-      firstName: row.firstName,
-      lastName: row.lastName,
-      roleId: row.roleId,
-      role: row.role === null ? null : parseSystemRole(row.role),
-      status: parseUserStatus(row.status),
-      lastLoginAt: row.lastLoginAt,
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt,
-    };
+    const { passwordHash: _passwordHash, refreshTokenHash: _refreshTokenHash, ...rest } = record;
+    return rest;
   }
 
   async existsByEmail(email: string): Promise<boolean> {

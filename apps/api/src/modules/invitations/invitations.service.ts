@@ -215,15 +215,11 @@ export class InvitationsService {
 
       const roleRes = await client.query(`SELECT name FROM roles WHERE id = $1`, [inv.role_id]);
       const roleName = (roleRes.rows[0]?.name as SystemRole) || SystemRole.MEMBER;
+      void roleName;
 
       await client.query('COMMIT');
 
-      return this.authService.createSession({
-        id: userId,
-        email: inv.email,
-        roleId: inv.role_id,
-        role: roleName,
-      });
+      return this.authService.createSessionById(userId);
     } catch (err) {
       await client.query('ROLLBACK');
       throw err;
