@@ -31,11 +31,11 @@
   - [x] Construct the Admin Invitation Management UI with real-time status filtering and revocation action buttons.
   - [x] Construct the Public Invitation Claim interface ensuring responsive layout across 360px to 1024px+ viewports.
 
-- [ ] Task 5: Audit logging and security telemetry implementation
-  - [ ] Implement system audit logging service tracking invitation lifecycle events and role transitions.
-  - [ ] Implement global HTTP exception filter and request transformation interceptor across NestJS.
-  - [ ] Enforce rate-limiting throttler rules on public authentication and invitation claim routes.
-  - [ ] Verify reverse proxy header trust and client IP extraction.
+- [x] Task 5: Audit logging and security telemetry implementation
+  - [x] Implement system audit logging service tracking invitation lifecycle events and role transitions.
+  - [x] Implement global HTTP exception filter and request transformation interceptor across NestJS.
+  - [x] Enforce rate-limiting throttler rules on public authentication and invitation claim routes.
+  - [x] Verify reverse proxy header trust and client IP extraction.
 
 - [ ] Task 6: Routing shell, responsive page assembly, and production build verification
   - [ ] Build application shell layout including responsive header, security context indicators, and session termination handler.
