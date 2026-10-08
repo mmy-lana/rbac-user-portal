@@ -37,9 +37,9 @@
   - [x] Enforce rate-limiting throttler rules on public authentication and invitation claim routes.
   - [x] Verify reverse proxy header trust and client IP extraction.
 
-- [ ] Task 6: Routing shell, responsive page assembly, and production build verification
-  - [ ] Build application shell layout including responsive header, security context indicators, and session termination handler.
-  - [ ] Wire up React Router routes with permission-aware route wrappers (`ProtectedRoute`).
-  - [ ] Verify complete layout responsiveness against strict viewport sizes: 360px, 390px, 430px, 768px, and 1024px+.
-  - [ ] Validate touch target criteria (minimum 44x44px bounding boxes) across all interactive triggers.
-  - [ ] Execute full production builds: `turbo run build` targeting Vercel (FE) and Render (BE).
+- [x] Task 6: Routing shell, responsive page assembly, and production build verification
+  - [x] Build application shell layout including responsive header, security context indicators, and session termination handler.
+  - [x] Wire up React Router routes with permission-aware route wrappers (`ProtectedRoute`).
+  - [x] Verify complete layout responsiveness against strict viewport sizes: 360px, 390px, 430px, 768px, and 1024px+.
+  - [x] Validate touch target criteria (minimum 44x44px bounding boxes) across all interactive triggers.
+  - [x] Execute full production builds: `turbo run build` targeting Vercel (FE) and Render (BE).
