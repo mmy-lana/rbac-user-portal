@@ -14,8 +14,11 @@
  * only, which is why a page reload must go through the refresh exchange.
  */
 
+// Same-origin relative path by default: the Vite dev server proxies `/api` to
+// the API, so the browser never makes a cross-origin request (no CORS, and
+// cookies are first-party). Override with VITE_API_BASE_URL for absolute URLs.
 const RAW_BASE_URL =
-  (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? 'http://localhost:3000/api/v1';
+  (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '/api/v1';
 
 /** Base URL without a trailing slash, e.g. `https://api.example.com/api/v1`. */
 export const API_BASE_URL = RAW_BASE_URL.replace(/\/$/, '');

@@ -146,17 +146,18 @@ export class AuthController {
   /**
    * Cookie policy for the refresh token.
    *
-   * The `__Host-` prefix is a browser-enforced contract: the cookie is accepted
-   * only when it is `Secure`, scoped to `Path=/`, and carries no `Domain`
-   * attribute — which rules out subdomain cookie-fixation and cookie-tossing.
-   * Because `Secure` is mandatory under that prefix, a local development origin
-   * must be reached over HTTPS (or a TLS proxy) for the refresh flow to work; that
-   * is intentional rather than a development-mode affordance.
+   * In production the `__Host-` prefix applies (paired with the prefixed cookie
+   * name in `env.ts`): browsers enforce `Secure`, `Path=/`, and no `Domain`,
+   * which rules out subdomain cookie-fixation and cookie-tossing.
+   *
+   * Outside production we relax `Secure` because the local dev stack runs over
+   * plain `http://localhost` without a TLS terminator — a `Secure` cookie would
+   * be silently dropped by the browser and the refresh flow would never work.
    */
   private cookieOptions(): CookieOptions {
     return {
       httpOnly: true,
-      secure: true,
+      secure: this.env.isProduction,
       sameSite: 'strict',
       path: '/',
       maxAge: this.env.refreshTokenTtlMs,

@@ -111,7 +111,9 @@ export class InvitationsController {
     // as `/auth/login` applies, so there is exactly one session issuance path.
     response.cookie(this.env.refreshCookieName, session.refreshToken, {
       httpOnly: true,
-      secure: true,
+      // Relaxed outside production: plain-HTTP localhost cannot set a Secure
+      // cookie, and browsers would silently drop it (see auth.controller.ts).
+      secure: this.env.isProduction,
       sameSite: 'strict',
       path: '/',
       maxAge: this.env.refreshTokenTtlMs,

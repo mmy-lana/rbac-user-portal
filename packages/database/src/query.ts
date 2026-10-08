@@ -37,8 +37,7 @@ export {
 
 export { alias } from 'drizzle-orm/pg-core';
 
-import type { NeonDatabase } from 'drizzle-orm/neon-serverless';
-import type { NeonHttpDatabase } from 'drizzle-orm/neon-http';
+import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import type * as schema from './schema/index';
 
 /**
@@ -48,5 +47,5 @@ import type * as schema from './schema/index';
  * have to import the schema namespace just to annotate a variable, and never get
  * the untyped `Record<string, never>` default that erases relational typing.
  */
-export type Database = NeonHttpDatabase<typeof schema>;
-export type PooledDatabase = NeonDatabase<typeof schema>;
+export type Database = NodePgDatabase<typeof schema>;
+export type PooledDatabase = NodePgDatabase<typeof schema>;

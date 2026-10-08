@@ -39,9 +39,13 @@ async function bootstrap(): Promise<void> {
   });
 
   app.enableCors({
-    // With credentials enabled the origin can never be a wildcard, so it is
-    // pinned to the single configured web origin.
-    origin: env.webAppOrigin,
+    // With credentials enabled the origin can never be a wildcard. In
+    // production we pin to the single configured web origin; in development we
+    // accept both localhost/127.0.0.1 variants of the Vite dev server (the
+    // Vite proxy already makes the browser same-origin, this covers direct calls).
+    origin: env.isProduction
+      ? env.webAppOrigin
+      : [env.webAppOrigin, 'http://localhost:5173', 'http://127.0.0.1:5173'],
     methods: 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
     allowedHeaders: 'Content-Type,Authorization,X-Requested-With,X-Request-Id',
     credentials: true,

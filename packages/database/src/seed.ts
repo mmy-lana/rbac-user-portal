@@ -1,19 +1,25 @@
-import { neon } from '@neondatabase/serverless';
-import { drizzle } from 'drizzle-orm/neon-http';
+import { Pool } from 'pg';
+import { drizzle } from 'drizzle-orm/node-postgres';
 import * as bcrypt from 'bcrypt';
-import * as dotenv from 'dotenv';
+import * as path from 'node:path';
+import { config as loadEnvFile } from 'dotenv';
+
+// Resolve `.env` from the package root first, then the repo root, so seeding
+// behaves identically whether it runs under turbo, pnpm, or directly.
+const packageRoot = path.resolve(__dirname, '..');
+const repoRoot = path.resolve(packageRoot, '..', '..');
+loadEnvFile({ path: path.join(packageRoot, '.env'), override: false, quiet: true });
+loadEnvFile({ path: path.join(repoRoot, '.env'), override: false, quiet: true });
 import * as schema from './schema/index';
 import { sql } from 'drizzle-orm';
-
-dotenv.config();
 
 const connectionString = process.env.DATABASE_URL || '';
 if (!connectionString) {
   throw new Error('DATABASE_URL is not set for seed script.');
 }
 
-const client = neon(connectionString);
-const db = drizzle(client, { schema });
+const pool = new Pool({ connectionString });
+const db = drizzle(pool, { schema });
 
 async function runSeed() {
   const rolesList = [
@@ -89,7 +95,10 @@ async function runSeed() {
   }
 }
 
-runSeed().catch((err) => {
-  process.stderr.write(`${err.message}\n`);
-  process.exit(1);
-});
+runSeed()
+  .then(() => pool.end())
+  .catch(async (err) => {
+    process.stderr.write(`${err.message}\n`);
+    await pool.end().catch(() => undefined);
+    process.exit(1);
+  });

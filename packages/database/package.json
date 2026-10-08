@@ -32,15 +32,15 @@
     "bcrypt": "latest",
     "dotenv": "latest",
     "drizzle-orm": "latest",
-    "ws": "latest"
+    "pg": "latest"
   },
   "devDependencies": {
     "@rbac/tsconfig": "workspace:*",
     "@types/bcrypt": "latest",
     "@types/node": "latest",
-    "@types/ws": "latest",
     "drizzle-kit": "latest",
     "tsx": "latest",
-    "typescript": "latest"
+    "typescript": "latest",
+    "@types/pg": "latest"
   }
 }

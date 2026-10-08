@@ -28,6 +28,13 @@ const MIN_SECRET_LENGTH = 32;
 /** Name of the refresh cookie. `__Host-` forces Secure + Path=/ + no Domain. */
 export const REFRESH_COOKIE_NAME = '__Host-vault_refresh_token';
 
+/**
+ * Browsers reject `__Host-`-prefixed cookies that lack the `Secure` attribute,
+ * which is impossible to satisfy on plain-HTTP `http://localhost` without TLS.
+ * Outside production we drop the prefix so the local, non-TLS dev stack works.
+ */
+export const DEVELOPMENT_REFRESH_COOKIE_NAME = 'vault_refresh_token';
+
 export const DEVELOPMENT_ACCESS_SECRET =
   'vault_insecure_access_secret_development_minimum_32_bytes_entropy';
 export const DEVELOPMENT_REFRESH_SECRET =
@@ -157,7 +164,7 @@ export function loadAppEnvironment(): AppEnvironment {
     jwtRefreshSecret: refreshSecret,
     accessTokenTtlSeconds: ACCESS_TOKEN_TTL_SECONDS,
     refreshTokenTtlMs: REFRESH_TOKEN_TTL_MS,
-    refreshCookieName: REFRESH_COOKIE_NAME,
+    refreshCookieName: isProduction ? REFRESH_COOKIE_NAME : DEVELOPMENT_REFRESH_COOKIE_NAME,
     rateLimits: {
       auth: { limit: 5, ttl: 60_000 },
       invitationClaim: { limit: 5, ttl: 60_000 },
