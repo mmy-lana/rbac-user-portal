@@ -23,13 +23,13 @@
   - [x] Implement frontend `auth-store` with Zustand and TanStack Query authentication hooks.
   - [x] Build vault login screen meeting all viewport specifications without hover dependencies.
 
-- [ ] Task 4: Feature Module 2 (User Invitations Portal) end-to-end implementation
-  - [ ] Create database models and migrations for the `invitations` table with cryptographically secure tokens.
-  - [ ] Implement NestJS `InvitationsModule` with token dispatch, validation, revocation, and expiration logic.
-  - [ ] Implement invitation API endpoints with full RBAC protection (Owner/Admin roles only).
-  - [ ] Implement invitation acceptance pipeline: token validation, user creation, role binding, and automated login.
-  - [ ] Construct the Admin Invitation Management UI with real-time status filtering and revocation action buttons.
-  - [ ] Construct the Public Invitation Claim interface ensuring responsive layout across 360px to 1024px+ viewports.
+- [x] Task 4: Feature Module 2 (User Invitations Portal) end-to-end implementation
+  - [x] Create database models and migrations for the `invitations` table with cryptographically secure tokens.
+  - [x] Implement NestJS `InvitationsModule` with token dispatch, validation, revocation, and expiration logic.
+  - [x] Implement invitation API endpoints with full RBAC protection (Owner/Admin roles only).
+  - [x] Implement invitation acceptance pipeline: token validation, user creation, role binding, and automated login.
+  - [x] Construct the Admin Invitation Management UI with real-time status filtering and revocation action buttons.
+  - [x] Construct the Public Invitation Claim interface ensuring responsive layout across 360px to 1024px+ viewports.
 
 - [ ] Task 5: Audit logging and security telemetry implementation
   - [ ] Implement system audit logging service tracking invitation lifecycle events and role transitions.
