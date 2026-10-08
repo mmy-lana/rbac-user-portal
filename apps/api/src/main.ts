@@ -23,12 +23,10 @@ import { loadAppEnvironment } from './config/env';
  */
 async function bootstrap(): Promise<void> {
   const env = loadAppEnvironment();
-  const logger = new Logger('Bootstrap');
 
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
-    // Keep Express' own logger quiet; the request interceptor emits structured
-    // JSON lines instead, which is what the log pipeline actually consumes.
-    logger: ['error', 'warn', 'log'],
+    // Silence internal framework inspection noise during development bootstrap
+    logger: ['error', 'warn'],
   });
 
   // Honour exactly one proxy hop (Render terminates TLS in front of us).
@@ -73,7 +71,14 @@ async function bootstrap(): Promise<void> {
 
   await app.listen(env.port, '0.0.0.0');
 
-  logger.log(`Vault API listening on port ${env.port} [${env.nodeEnv}]`);
+  process.stdout.write(`
+--------------------------------------------------
+  VAULT BACKEND ONLINE -> PORT ${env.port}
+  - API Gateway:  http://localhost:${env.port}/api/v1
+  - Health Probe: http://localhost:${env.port}/health
+  - Web UI:       http://localhost:5173
+--------------------------------------------------
+\n`);
 }
 
 bootstrap().catch((error: unknown) => {
