@@ -43,3 +43,15 @@
   - [x] Verify complete layout responsiveness against strict viewport sizes: 360px, 390px, 430px, 768px, and 1024px+.
   - [x] Validate touch target criteria (minimum 44x44px bounding boxes) across all interactive triggers.
   - [x] Execute full production builds: `turbo run build` targeting Vercel (FE) and Render (BE).
+
+- [x] Task 7: Security audit remediation (Batch 1–3)
+  - [x] CONF-01: Development fallback for WEB_APP_ORIGIN in non-production environments.
+  - [x] SEC-01: Hierarchical access control on invitation creation (prohibit OWNER dispatch, enforce outranks).
+  - [x] SEC-02: Status verification before audit success entry; failure audit for suspended/pending identities.
+  - [x] DATA-01: Pagination parameters added to ListInvitationsQueryDto with class-validator decorators.
+  - [x] PERF-01: Removed mutating sweepExpiredInvitations() from GET list() path.
+  - [x] SEC-03: PostgreSQL 23505 duplicate key error translation to ConflictException.
+  - [x] SEC-04: Verified no redundant class-level guards (guards are global via APP_GUARD).
+  - [x] API-01: Created ListAuditLogsQueryDto with validated pagination and filter fields.
+  - [x] MOB-01: Mobile action bar offset above AppShell bottom tab navigation.
+  - [x] SPEC-SYNC: Updated TASKS.md and specs/04-invitations-portal.md with remediation documentation.

@@ -26,6 +26,9 @@ In `InvitationsController`, routes must be registered in strict order to avoid p
 
 ### POST `/api/v1/invitations`
 - Headers: `Authorization: Bearer <accessToken>` (Requires role `OWNER` or `ADMIN`, permission `invitations:create`)
+- Hierarchical Access Control (SEC-01):
+  - Invitations targeting the `OWNER` role are prohibited. A request whose `roleId` resolves to `SYSTEM_ROLE_IDS.OWNER` is rejected with `403 Forbidden` before any database access.
+  - The issuing actor must **strictly outrank** the target invitation role: `outranks(actor.role, targetRole)` must hold. An actor may never issue an invitation for a role equal to or above their own clearance; violations are rejected with `403 Forbidden`.
 - Body:
 ```json
 {
@@ -56,7 +59,8 @@ In `InvitationsController`, routes must be registered in strict order to avoid p
 
 ### GET `/api/v1/invitations`
 - Headers: `Authorization: Bearer <accessToken>` (Requires permission `invitations:read`)
-- Query Parameters: `page=1&limit=20&status=PENDING`
+- Query Parameters: `page=1&limit=20&status=PENDING` — `page` (integer >= 1, default 1) and `limit` (integer 1–100, default 20) are validated by `ListInvitationsQueryDto` via class-transformer/class-validator; unvalidated parameters are rejected by the global `forbidNonWhitelisted` ValidationPipe.
+- Read-Path Idempotency (PERF-01): The list handler is strictly read-only. Mutating expiry sweeps (`sweepExpiredInvitations`) and their audit writes were **removed from the read path**; expiration is derived in-memory per row via `isExpired(row.expiresAt)` and reported as `EXPIRED` in the response without persisting state transitions during `GET` requests.
 - Response (200 OK): Contains paginated array of `InvitationEntity`.
 
 ### GET `/api/v1/invitations/validate/:token`
@@ -105,7 +109,7 @@ In `InvitationsController`, routes must be registered in strict order to avoid p
 ### 1. Invitation Management Portal (Admin View)
 - Viewport `360px`, `390px`, `430px`:
   - Search bar and role filter stack vertically, full-width inputs (min height 44px).
-  - Primary "Issue Invitation" trigger sticks to the bottom of the viewport as a fixed vault action bar with `padding-bottom: env(safe-area-inset-bottom, 16px)` and `min-height: calc(48px + env(safe-area-inset-bottom, 0px))` to prevent mobile browser chrome occlusion.
+  - Primary "Issue Invitation" trigger sits in a fixed vault action bar **offset above the AppShell bottom tab navigation** — `bottom: calc(56px + env(safe-area-inset-bottom, 0px))` — so the trigger neither occludes nor is occluded by the mobile navigation bar (MOB-01). The content well reserves matching spacer height so the last row is never covered.
   - Table transforms into individual `VaultCard` records displaying:
     - Target email in monospace text.
     - Status badge and assigned role badge side-by-side.
