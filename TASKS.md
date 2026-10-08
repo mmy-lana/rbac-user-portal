@@ -7,13 +7,13 @@
   - [x] Configure `packages/database` with Neon serverless connection, Drizzle schema, migration generator, and standalone seed script.
   - [x] Validate connection pooling and migration scripts targeting Neon PostgreSQL.
 
-- [ ] Task 2: Core design system primitives and atomic UI components
-  - [ ] Initialize `packages/ui` and configure Tailwind CSS v4 design tokens adhering to the Vault theme.
-  - [ ] Implement `VaultButton` primitive with states: normal, active, focus, disabled, loading, destructive.
-  - [ ] Implement `VaultInput` primitive with explicit error status, helper texts, and 44px min touch target.
-  - [ ] Implement `VaultCard` and `VaultBadge` supporting security severity tokens.
-  - [ ] Implement `VaultModal` with accessible focus-trapping, backdrop blur, and viewport adaptability.
-  - [ ] Implement responsive data view primitive transforming between standard tabular view and compact stack view.
+- [x] Task 2: Core design system primitives and atomic UI components
+  - [x] Initialize `packages/ui` and configure Tailwind CSS v4 design tokens adhering to the Vault theme.
+  - [x] Implement `VaultButton` primitive with states: normal, active, focus, disabled, loading, destructive.
+  - [x] Implement `VaultInput` primitive with explicit error status, helper texts, and 44px min touch target.
+  - [x] Implement `VaultCard` and `VaultBadge` supporting security severity tokens.
+  - [x] Implement `VaultModal` with accessible focus-trapping, backdrop blur, and viewport adaptability.
+  - [x] Implement responsive data view primitive transforming between standard tabular view and compact stack view.
 
 - [ ] Task 3: Feature Module 1 (Auth & RBAC) end-to-end implementation
   - [ ] Build NestJS `UsersModule` and `AuthModule` with bcrypt password hashing (12 rounds).
