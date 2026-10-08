@@ -1,4 +1,5 @@
-import { IsEmail, IsIn, IsString, Length, MaxLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsEmail, IsIn, IsInt, IsOptional, IsString, Length, Max, MaxLength, Min } from 'class-validator';
 import { InvitationStatus } from '@rbac/shared';
 
 /** Roles an invitation may assign. `OWNER` is excluded by design. */
@@ -47,11 +48,26 @@ export class AcceptInvitationDto {
 
 /** Query for `GET /api/v1/invitations`. */
 export class ListInvitationsQueryDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number;
+
+  @IsOptional()
   @IsIn(INVITATION_STATUS_VALUES, {
     message: `status must be one of: ${INVITATION_STATUS_VALUES.join(', ')}`,
   })
   status?: InvitationStatus;
 
+  @IsOptional()
   @IsString()
   @MaxLength(255)
   search?: string;

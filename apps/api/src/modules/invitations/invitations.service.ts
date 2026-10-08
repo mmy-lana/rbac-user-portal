@@ -32,8 +32,10 @@ import {
   INVITATION_CLAIM_PATH,
   INVITATION_TOKEN_BYTES,
   INVITATION_TTL_HOURS,
+  SYSTEM_ROLE_IDS,
   buildPaginationMeta,
   isExpired,
+  outranks,
   parseInvitationStatus,
   parseSystemRole,
   toIsoString,
@@ -142,7 +144,17 @@ export class InvitationsService {
   ): Promise<CreatedInvitation> {
     const email = input.email.trim().toLowerCase();
 
+    if (input.roleId === SYSTEM_ROLE_IDS.OWNER) {
+      throw new ForbiddenException('Owner invitations cannot be dispatched through the portal.');
+    }
+
     const role = await this.resolveRole(input.roleId);
+
+    if (!outranks(actor.role, role.name)) {
+      throw new ForbiddenException(
+        'You cannot issue an invitation for a role that equals or exceeds your own clearance.'
+      );
+    }
 
     if (await this.usersService.existsByEmail(email)) {
       throw new ConflictException('That identity already exists in the vault.');
@@ -251,11 +263,6 @@ export class InvitationsService {
       .where(where);
 
     const items = rows.map((row) => this.toEntity(row));
-
-    // Persist the derived EXPIRED state so the directory cannot keep showing a
-    // stale "pending" invitation once its window has closed.
-    const expiredCount = await this.sweepExpiredInvitations();
-    await this.auditService.recordInvitationsExpired(expiredCount);
 
     return { items, meta: buildPaginationMeta(total, page, limit) };
   }
@@ -388,22 +395,36 @@ export class InvitationsService {
       const newUserId = generateId('usr');
       const passwordHash = await bcrypt.hash(input.password, BCRYPT_SALT_ROUNDS);
 
-      await tx.insert(usersTable).values({
-        id: newUserId,
-        email: invitation.email,
-        passwordHash,
-        firstName: input.firstName.trim(),
-        lastName: input.lastName.trim(),
-        roleId: invitation.roleId,
-        // Acceptance *is* the activation: the identity is fully proven by
-        // possession of the claim link.
-        status: 'ACTIVE',
-      });
+      try {
+        await tx.insert(usersTable).values({
+          id: newUserId,
+          email: invitation.email,
+          passwordHash,
+          firstName: input.firstName.trim(),
+          lastName: input.lastName.trim(),
+          roleId: invitation.roleId,
+          // Acceptance *is* the activation: the identity is fully proven by
+          // possession of the claim link.
+          status: 'ACTIVE',
+        });
+      } catch (insertError: unknown) {
+        if (isPgDuplicateKey(insertError)) {
+          throw new ConflictException('This identity is already registered in the vault.');
+        }
+        throw insertError;
+      }
 
-      await tx
-        .update(invitationsTable)
-        .set({ status: 'ACCEPTED', acceptedAt: new Date(), updatedAt: new Date() })
-        .where(eq(invitationsTable.id, invitation.id));
+      try {
+        await tx
+          .update(invitationsTable)
+          .set({ status: 'ACCEPTED', acceptedAt: new Date(), updatedAt: new Date() })
+          .where(eq(invitationsTable.id, invitation.id));
+      } catch (updateError: unknown) {
+        if (isPgDuplicateKey(updateError)) {
+          throw new ConflictException('This invitation has already been claimed.');
+        }
+        throw updateError;
+      }
 
       await tx.insert(auditLogsTable).values({
         id: generateId('aud'),
@@ -596,4 +617,19 @@ async function padToMinimumLatency(startedAt: number, floorMs: number): Promise<
  */
 function escapeLike(term: string): string {
   return term.replace(/[\\%_]/g, (character) => `\\${character}`);
+}
+
+/**
+ * Detects PostgreSQL unique-constraint violations (error code 23505).
+ *
+ * Drizzle surfaces driver errors as-is; the Neon serverless driver attaches
+ * `code` on the error object for constraint failures.
+ */
+function isPgDuplicateKey(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code: unknown }).code === '23505'
+  );
 }

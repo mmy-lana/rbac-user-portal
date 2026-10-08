@@ -116,20 +116,27 @@ export class AuthService {
       throw new UnauthorizedException('Authentication credentials invalid');
     }
 
-    await this.auditService.recordSignIn({
-      userId: user.id,
-      role: user.role ?? SystemRole.MEMBER,
-      outcome: 'success',
-      telemetry,
-    });
-
     if (user.status !== UserStatus.ACTIVE) {
+      await this.auditService.recordSignIn({
+        userId: user.id,
+        role: user.role ?? SystemRole.MEMBER,
+        outcome: 'failure',
+        attemptedEmail: normalizedEmail,
+        telemetry,
+      });
       throw new ForbiddenException(
         user.status === UserStatus.SUSPENDED
           ? 'This identity is suspended.'
           : 'This identity has not completed activation.'
       );
     }
+
+    await this.auditService.recordSignIn({
+      userId: user.id,
+      role: user.role ?? SystemRole.MEMBER,
+      outcome: 'success',
+      telemetry,
+    });
 
     return user;
   }

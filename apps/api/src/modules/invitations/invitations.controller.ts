@@ -59,8 +59,8 @@ export class InvitationsController {
     @Req() request: Request
   ): Promise<ApiResponseEnvelope<unknown>> {
     const result = await this.invitationsService.list({
-      ...(typeof request.query['page'] === 'string' ? { page: request.query['page'] } : {}),
-      ...(typeof request.query['limit'] === 'string' ? { limit: request.query['limit'] } : {}),
+      ...(query.page !== undefined ? { page: query.page } : {}),
+      ...(query.limit !== undefined ? { limit: query.limit } : {}),
       ...(query.status ? { status: query.status } : {}),
       ...(query.search ? { search: query.search } : {}),
     });

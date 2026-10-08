@@ -1,6 +1,7 @@
 import { Controller, Get, Query, Req } from '@nestjs/common';
 import type { Request } from 'express';
 import { AuditService } from './audit.service';
+import { ListAuditLogsQueryDto } from './dto/list-audit-logs.dto';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { resolveRequestId } from '../../common/interfaces/request.interface';
 import {
@@ -24,18 +25,11 @@ export class AuditController {
   @RequirePermissions(SystemPermissions.AUDIT_READ)
   @Get()
   async list(
-    @Query()
-    query: {
-      page?: string;
-      limit?: string;
-      action?: string;
-      resourceType?: string;
-      search?: string;
-    },
+    @Query() query: ListAuditLogsQueryDto,
     @Req() request: Request
   ): Promise<ApiResponseEnvelope<unknown>> {
-    const page = Math.max(1, Number.parseInt(query.page ?? '1', 10) || 1);
-    const limit = Math.min(100, Math.max(1, Number.parseInt(query.limit ?? '20', 10) || 20));
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
 
     const result = await this.auditService.list({
       page,

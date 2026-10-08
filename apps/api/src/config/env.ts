@@ -79,11 +79,14 @@ function readPort(): number {
   return parsed;
 }
 
-function readOrigin(): string {
+function readOrigin(isProduction: boolean): string {
   const raw = process.env.WEB_APP_ORIGIN?.trim();
   if (!raw) {
+    if (!isProduction) {
+      return 'http://localhost:5173';
+    }
     throw new Error(
-      'WEB_APP_ORIGIN is required. Set it to the exact browser origin of the web app, e.g. https://portal.example.com.'
+      'WEB_APP_ORIGIN is required in production. Set it to the exact browser origin of the web app, e.g. https://portal.example.com.'
     );
   }
   // CORS with credentials must never be configured from a wildcard.
@@ -149,7 +152,7 @@ export function loadAppEnvironment(): AppEnvironment {
     nodeEnv,
     isProduction,
     port: readPort(),
-    webAppOrigin: readOrigin(),
+    webAppOrigin: readOrigin(isProduction),
     jwtAccessSecret: accessSecret,
     jwtRefreshSecret: refreshSecret,
     accessTokenTtlSeconds: ACCESS_TOKEN_TTL_SECONDS,
