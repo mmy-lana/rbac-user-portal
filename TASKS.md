@@ -15,13 +15,13 @@
   - [x] Implement `VaultModal` with accessible focus-trapping, backdrop blur, and viewport adaptability.
   - [x] Implement responsive data view primitive transforming between standard tabular view and compact stack view.
 
-- [ ] Task 3: Feature Module 1 (Auth & RBAC) end-to-end implementation
-  - [ ] Build NestJS `UsersModule` and `AuthModule` with bcrypt password hashing (12 rounds).
-  - [ ] Implement `JwtStrategy`, `JwtRefreshStrategy`, and associated passport authentication guards.
-  - [ ] Create `@Roles()`, `@Permissions()`, and `@Public()` decorators along with default-deny `RbacGuard`.
-  - [ ] Implement auth endpoints: `POST /login`, `POST /refresh`, `POST /logout`, and `GET /me`.
-  - [ ] Implement frontend `auth-store` with Zustand and TanStack Query authentication hooks.
-  - [ ] Build vault login screen meeting all viewport specifications without hover dependencies.
+- [x] Task 3: Feature Module 1 (Auth & RBAC) end-to-end implementation
+  - [x] Build NestJS `UsersModule` and `AuthModule` with bcrypt password hashing (12 rounds).
+  - [x] Implement `JwtStrategy`, `JwtRefreshStrategy`, and associated passport authentication guards.
+  - [x] Create `@Roles()`, `@Permissions()`, and `@Public()` decorators along with default-deny `RbacGuard`.
+  - [x] Implement auth endpoints: `POST /login`, `POST /refresh`, `POST /logout`, and `GET /me`.
+  - [x] Implement frontend `auth-store` with Zustand and TanStack Query authentication hooks.
+  - [x] Build vault login screen meeting all viewport specifications without hover dependencies.
 
 - [ ] Task 4: Feature Module 2 (User Invitations Portal) end-to-end implementation
   - [ ] Create database models and migrations for the `invitations` table with cryptographically secure tokens.
