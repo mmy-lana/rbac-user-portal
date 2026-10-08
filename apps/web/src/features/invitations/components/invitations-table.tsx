@@ -362,27 +362,28 @@ export const InvitationsTable: React.FC = () => {
       </VaultCard>
 
       {/*
-        Mobile action bar. `env(safe-area-inset-bottom)` keeps the trigger clear of
-        the iOS home indicator and of collapsing browser chrome.
+        Mobile action bar. Offset above the AppShell fixed bottom navigation bar
+        (~56px) plus the safe-area inset so it never occludes the tab bar or gets
+        occluded by it.
       */}
       {canCreate ? (
         <div
-          className="tablet:hidden fixed bottom-0 inset-x-0 z-30 border-t border-vault-border bg-vault-surface px-3 pt-2 backdrop-blur-sm"
-          style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 16px)' }}
+          className="tablet:hidden fixed inset-x-0 z-30 border-t border-vault-border bg-vault-surface px-3 pt-2 backdrop-blur-sm"
+          style={{ bottom: 'calc(56px + env(safe-area-inset-bottom, 0px))' }}
         >
           <VaultButton
             variant="primary"
             className="w-full"
             onClick={() => setIsIssueOpen(true)}
-            style={{ minHeight: 'calc(48px + env(safe-area-inset-bottom, 0px))' }}
+            style={{ minHeight: '48px' }}
           >
             Issue invitation
           </VaultButton>
         </div>
       ) : null}
 
-      {/* Spacer so the fixed mobile bar never covers the last row. */}
-      <div className="tablet:hidden h-20" aria-hidden="true" />
+      {/* Spacer so the stacked mobile bars never cover the last row. */}
+      <div className="tablet:hidden h-32" aria-hidden="true" />
 
       <VaultModal
         isOpen={isIssueOpen}
